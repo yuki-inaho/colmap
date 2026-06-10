@@ -1,0 +1,43 @@
+[workspace]
+name = "colmap"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[system-requirements]
+cuda = "12"
+
+[dependencies]
+compilers = ">=1.11.0,<2"
+cmake = ">=4.3.3,<5"
+ninja = ">=1.13.2,<2"
+ccache = ">=4.13.6,<5"
+pkg-config = ">=0.29.2,<0.30"
+git = ">=2.54.0,<3"
+cuda-nvcc = "12.9.*"
+cuda-cudart-dev = ">=12.9.79,<13"
+libcurand-dev = ">=10.3.10.19,<11"
+cudnn = ">=9.10.2.21,<10"
+cuda-version = "12.9.*"
+eigen = ">=5.0.1,<6"
+libboost-devel = ">=1.91.0,<2"
+openimageio = ">=3.1.14.0,<4"
+metis = "5.1.0.*"
+glog = ">=0.7.1,<0.8"
+gflags = ">=2.2.2,<3"
+sqlite = ">=3.53.2,<4"
+suitesparse = ">=7.10.1,<8"
+ceres-solver = ">=2.2.0,<3"
+curl = ">=8.20.0,<9"
+openssl = ">=3.6.2,<4"
+python = "3.11.*"
+pip = ">=26.1.2,<27"
+numpy = ">=2.4.6,<3"
+pytest = ">=9.0.3,<10"
+fmt = ">=12.1.0,<13"
+glew = ">=2.3.0,<3"
+libgl-devel = ">=1.7.0,<2"
+
+[tasks]
+configure = { cmd = "scripts/pixi/configure_cuda_project.sh . build -DCUDA_ENABLED=ON -DONNX_ENABLED=ON -DFETCH_ONNX=ON -DDOWNLOAD_ENABLED=ON -DGUI_ENABLED=OFF -DCGAL_ENABLED=OFF -DLSD_ENABLED=OFF -DTESTS_ENABLED=OFF -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX" }
+build = { cmd = "cmake --build build", depends-on = ["configure"] }
+install-colmap = { cmd = "cmake --install build", depends-on = ["build"] }

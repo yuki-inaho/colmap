@@ -8,6 +8,7 @@ compile_commands.json
 .claude/settings.local.json
 
 # Custom directories
+temp/
 .idea/
 .vscode
 .vs
@@ -58,3 +59,5 @@ vcpkg_installed/
 # backup files
 *~
 *.orig
+.agents/
+.pixi/
