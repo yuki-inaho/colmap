@@ -39,6 +39,7 @@ libgl-devel = ">=1.7.0,<2"
 opencv = ">=4.13.0,<5"
 pillow = ">=12.2.0,<13"
 pyyaml = ">=6.0.3,<7"
+libcufft-dev = ">=11"
 
 [tasks]
 configure = { cmd = "scripts/pixi/configure_cuda_project.sh . build -DCUDA_ENABLED=ON -DONNX_ENABLED=ON -DFETCH_ONNX=ON -DDOWNLOAD_ENABLED=ON -DGUI_ENABLED=OFF -DCGAL_ENABLED=OFF -DLSD_ENABLED=OFF -DTESTS_ENABLED=OFF -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX" }
