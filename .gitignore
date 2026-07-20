@@ -28,6 +28,12 @@ vcpkg_installed/
 *.o
 *.obj
 *.pyc
+__pycache__/
+
+# Local Python tooling state
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
 
 # Precompiled Headers
 *.gch
@@ -55,5 +61,6 @@ vcpkg_installed/
 # backup files
 *~
 *.orig
+*.db
 .agents/
 .pixi/
