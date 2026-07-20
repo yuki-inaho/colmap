@@ -32,6 +32,29 @@ Download
   install docs).
 * To **build from source**, please see https://colmap.github.io/install.html.
 
+Pixi CUDA Environment
+---------------------
+
+This checkout includes a reproducible Linux CUDA environment. It builds COLMAP
+without the GUI, with CUDA, ONNX, ALIKED, and LightGlue support enabled:
+
+    pixi install
+    pixi run install-colmap
+    pixi run colmap -h
+
+The following tasks run the ALIKED N16ROT extractor and the compatible
+ALIKED-LightGlue matcher. On first use, COLMAP verifies, downloads, and caches
+the required ONNX models in ``~/.cache/colmap``:
+
+    COLMAP_IMAGE_PATH=/path/to/images \
+    COLMAP_DATABASE_PATH=/path/to/database.db \
+    pixi run aliked-extract
+
+    COLMAP_DATABASE_PATH=/path/to/database.db \
+    pixi run aliked-lightglue-match
+
+Do not mix ALIKED descriptors with SIFT descriptors in the same database.
+
 Getting Started
 ---------------
 

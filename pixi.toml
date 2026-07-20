@@ -1,10 +1,7 @@
 [workspace]
 name = "colmap"
 channels = ["conda-forge"]
-platforms = ["linux-64"]
-
-[system-requirements]
-cuda = "12"
+platforms = [{ platform = "linux-64", cuda = "12" }]
 
 [dependencies]
 compilers = ">=1.11.0,<2"
@@ -45,3 +42,5 @@ libcufft-dev = ">=11"
 configure = { cmd = "scripts/pixi/configure_cuda_project.sh . build -DCUDA_ENABLED=ON -DONNX_ENABLED=ON -DFETCH_ONNX=ON -DDOWNLOAD_ENABLED=ON -DGUI_ENABLED=OFF -DCGAL_ENABLED=OFF -DLSD_ENABLED=OFF -DTESTS_ENABLED=OFF -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX" }
 build = { cmd = "cmake --build build", depends-on = ["configure"] }
 install-colmap = { cmd = "cmake --install build", depends-on = ["build"] }
+aliked-extract = { cmd = "bash scripts/pixi/aliked_lightglue.sh extract", depends-on = ["install-colmap"] }
+aliked-lightglue-match = { cmd = "bash scripts/pixi/aliked_lightglue.sh match", depends-on = ["install-colmap"] }
