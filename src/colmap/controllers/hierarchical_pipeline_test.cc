@@ -66,8 +66,6 @@ void ExpectEqualReconstructions(const Reconstruction& gt,
 }
 
 TEST(HierarchicalPipeline, WithoutNoise) {
-  SetPRNGSeed(1);
-
   const auto database_path = CreateTestDir() / "database.db";
 
   auto database = Database::Open(database_path);
@@ -81,7 +79,7 @@ TEST(HierarchicalPipeline, WithoutNoise) {
       synthetic_dataset_options, &gt_reconstruction, database.get());
 
   auto reconstruction_manager = std::make_shared<ReconstructionManager>();
-  HierarchicalPipeline::Options mapper_options;
+  HierarchicalPipelineOptions mapper_options;
   mapper_options.clustering_options.leaf_max_num_images = 5;
   mapper_options.clustering_options.image_overlap = 3;
   HierarchicalPipeline mapper(mapper_options, database, reconstruction_manager);
@@ -105,8 +103,6 @@ TEST(HierarchicalPipeline, WithoutNoise) {
 }
 
 TEST(HierarchicalPipeline, WithoutNoiseAndNonTrivialFrames) {
-  SetPRNGSeed(1);
-
   const auto database_path = CreateTestDir() / "database.db";
 
   auto database = Database::Open(database_path);
@@ -122,7 +118,7 @@ TEST(HierarchicalPipeline, WithoutNoiseAndNonTrivialFrames) {
       synthetic_dataset_options, &gt_reconstruction, database.get());
 
   auto reconstruction_manager = std::make_shared<ReconstructionManager>();
-  HierarchicalPipeline::Options mapper_options;
+  HierarchicalPipelineOptions mapper_options;
   mapper_options.clustering_options.leaf_max_num_images = 10;
   mapper_options.clustering_options.image_overlap = 3;
   // Note that the hierarchical mapper does not work well when the
@@ -141,8 +137,6 @@ TEST(HierarchicalPipeline, WithoutNoiseAndNonTrivialFrames) {
 }
 
 TEST(HierarchicalPipeline, WithoutNoiseAndPanoramicNonTrivialFrames) {
-  SetPRNGSeed(1);
-
   const auto database_path = CreateTestDir() / "database.db";
 
   auto database = Database::Open(database_path);
@@ -158,7 +152,7 @@ TEST(HierarchicalPipeline, WithoutNoiseAndPanoramicNonTrivialFrames) {
       synthetic_dataset_options, &gt_reconstruction, database.get());
 
   auto reconstruction_manager = std::make_shared<ReconstructionManager>();
-  HierarchicalPipeline::Options mapper_options;
+  HierarchicalPipelineOptions mapper_options;
   mapper_options.clustering_options.leaf_max_num_images = 10;
   mapper_options.clustering_options.image_overlap = 3;
   // Note that the hierarchical mapper does not work well when the
@@ -177,8 +171,6 @@ TEST(HierarchicalPipeline, WithoutNoiseAndPanoramicNonTrivialFrames) {
 }
 
 TEST(HierarchicalPipeline, MultiReconstruction) {
-  SetPRNGSeed(1);
-
   const auto database_path = CreateTestDir() / "database.db";
 
   auto database = Database::Open(database_path);
@@ -196,7 +188,7 @@ TEST(HierarchicalPipeline, MultiReconstruction) {
       synthetic_dataset_options, &gt_reconstruction2, database.get());
 
   auto reconstruction_manager = std::make_shared<ReconstructionManager>();
-  HierarchicalPipeline::Options mapper_options;
+  HierarchicalPipelineOptions mapper_options;
   mapper_options.clustering_options.leaf_max_num_images = 5;
   mapper_options.clustering_options.image_overlap = 3;
   HierarchicalPipeline mapper(mapper_options, database, reconstruction_manager);
