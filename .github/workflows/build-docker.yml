@@ -48,7 +48,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        if: ${{ env.IS_RELEASE == 'true' }}
+        if: ${{ env.IS_RELEASE == 'true' && github.repository == 'colmap/colmap' }}
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -79,7 +79,7 @@ jobs:
           rm -rf build/.ccache
           mv build/cache-export/.ccache build/.ccache
           rm -rf build/cache-export
-          if [[ "${{ env.IS_RELEASE }}" == "true" ]]; then
+          if [[ "${{ env.IS_RELEASE }}" == "true" && "${{ github.repository }}" == "colmap/colmap" ]]; then
             docker tag colmap/colmap:$dockertag colmap/colmap:latest
             docker push colmap/colmap:$dockertag
             docker push colmap/colmap:latest
