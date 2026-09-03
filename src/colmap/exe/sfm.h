@@ -30,6 +30,7 @@
 #pragma once
 
 #include "colmap/controllers/global_pipeline.h"
+#include "colmap/controllers/hierarchical_pipeline.h"
 #include "colmap/controllers/incremental_pipeline.h"
 #include "colmap/scene/reconstruction.h"
 #include "colmap/scene/reconstruction_manager.h"
@@ -45,7 +46,8 @@ void RunPointTriangulatorImpl(
     const std::filesystem::path& output_path,
     const IncrementalPipelineOptions& options,
     bool clear_points,
-    bool refine_intrinsics);
+    bool refine_intrinsics,
+    std::function<bool()> check_if_stopped = {});
 
 bool RunIncrementalMapperImpl(
     const std::filesystem::path& database_path,
@@ -54,13 +56,21 @@ bool RunIncrementalMapperImpl(
     const std::shared_ptr<IncrementalPipelineOptions>& mapper_options,
     std::shared_ptr<ReconstructionManager>& reconstruction_manager,
     std::function<void()> initial_image_pair_callback = {},
-    std::function<void()> next_image_callback = {});
+    std::function<void()> next_image_callback = {},
+    std::function<bool()> check_if_stopped = {});
 
 bool RunGlobalMapperImpl(
     const std::filesystem::path& database_path,
     const std::filesystem::path& image_path,
     const std::filesystem::path& output_path,
     const std::shared_ptr<GlobalPipelineOptions>& mapper_options,
+    std::shared_ptr<ReconstructionManager>& reconstruction_manager);
+
+bool RunHierarchicalMapperImpl(
+    const std::filesystem::path& database_path,
+    const std::filesystem::path& image_path,
+    const std::filesystem::path& output_path,
+    const std::shared_ptr<HierarchicalPipelineOptions>& mapper_options,
     std::shared_ptr<ReconstructionManager>& reconstruction_manager);
 
 int RunAutomaticReconstructor(int argc, char** argv);
