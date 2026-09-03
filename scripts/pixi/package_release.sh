@@ -10,8 +10,9 @@ manifest="${build}/install_manifest.txt"
 [[ -f "$manifest" ]] || { echo "no install manifest: $manifest (run 'pixi run install-colmap' first)" >&2; exit 1; }
 
 version="$("${CONDA_PREFIX}/bin/colmap" -h 2>&1 | head -1 | awk '{print $2}')"
-arch="${COLMAP_CUDA_ARCH:-120}"
-name="colmap-${version}-linux-x86_64-cuda-sm${arch//;/_}"
+arch="$(sed -n 's/^CMAKE_CUDA_ARCHITECTURES:[^=]*=//p' "${build}/CMakeCache.txt")"
+if [[ "$arch" == *";"* ]]; then archtag="multiarch"; else archtag="sm${arch}"; fi
+name="colmap-${version}-linux-x86_64-cuda-${archtag}"
 mkdir -p "$out"
 
 list="$(mktemp)"; trap 'rm -f "$list"' EXIT
