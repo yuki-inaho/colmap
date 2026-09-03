@@ -55,6 +55,32 @@ the required ONNX models in ``~/.cache/colmap``:
 
 Do not mix ALIKED descriptors with SIFT descriptors in the same database.
 
+Prebuilt Binaries
+-----------------
+
+Releases of this fork ship the COLMAP build artifacts, so another Linux x86_64
+machine only has to materialize the dependency environment — nothing is
+compiled:
+
+    git clone -b blackwell git@github.com:yuki-inaho/colmap.git
+    cd colmap
+    pixi install                       # downloads prebuilt conda packages only
+    curl -fLo colmap.tar.gz <asset URL from the release page>
+    tar -xzf colmap.tar.gz -C .pixi/envs/default
+    pixi run colmap -h
+
+The tarball holds ``bin/colmap``, the ONNX Runtime shared libraries, the COLMAP
+static libraries, headers and CMake config, laid out relative to the pixi
+environment prefix. It is not standalone — the ~150 shared libraries it links
+against come from ``pixi install``.
+
+The tarballs are cut from the ``blackwell`` branch, whose ``COLMAP_CUDA_ARCH``
+default covers the GPUs in use here (``80;86;89;100;103;120``). On ``main`` the
+default stays ``89``; pass ``COLMAP_CUDA_ARCH=<arch> pixi run install-colmap``
+to target another GPU.
+
+Regenerate the tarball with ``pixi run bash scripts/pixi/package_release.sh``.
+
 Getting Started
 ---------------
 
