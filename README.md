@@ -78,6 +78,29 @@ set, rebuild with ``COLMAP_CUDA_ARCH=<arch> pixi run install-colmap``.
 
 Regenerate the tarball with ``pixi run bash scripts/pixi/package_release.sh``.
 
+RTX 2070 (sm_75) Prebuilt Binary
+--------------------------------
+
+The ``rtx2070`` branch also has a CUDA 12.9 build for RTX 2070.
+It uses the same Pixi dependency lock as the multi-architecture release, but
+requires no local C++ or CUDA compilation:
+
+    git clone -b rtx2070 https://github.com/yuki-inaho/colmap.git
+    cd colmap
+    pixi install
+    curl -fLO https://github.com/yuki-inaho/colmap/releases/download/v4.3.0.dev0-pixi-sm75-20260928/colmap-4.3.0.dev0-linux-x86_64-cuda-sm75.tar.gz
+    curl -fLO https://github.com/yuki-inaho/colmap/releases/download/v4.3.0.dev0-pixi-sm75-20260928/colmap-4.3.0.dev0-linux-x86_64-cuda-sm75.tar.gz.sha256
+    sha256sum -c colmap-4.3.0.dev0-linux-x86_64-cuda-sm75.tar.gz.sha256
+    tar -xzf colmap-4.3.0.dev0-linux-x86_64-cuda-sm75.tar.gz -C .pixi/envs/default
+    pixi run colmap -h
+
+This is a Pixi-environment overlay, not a standalone executable. It includes
+the COLMAP program and ONNX Runtime libraries; ``pixi install`` supplies their
+shared-library dependencies. GUI support is disabled. To make the sm_75 archive
+from an isolated staging install, configure with ``COLMAP_CUDA_ARCH=75`` and set
+``COLMAP_INSTALL_PREFIX`` to that install prefix when running
+``scripts/pixi/package_release.sh``.
+
 Getting Started
 ---------------
 
