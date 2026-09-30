@@ -71,10 +71,15 @@ compiled:
 
 The tarball holds ``bin/colmap``, the ONNX Runtime shared libraries, the COLMAP
 static libraries, headers and CMake config, laid out relative to the pixi
-environment prefix. Its CUDA kernels cover ``sm_80;86;89;100;103;120`` — A100,
-Ampere RTX, Ada (RTX 4090 / 6000 Ada / 4000 Ada / 2000 Ada / L4), datacenter
-Blackwell (B200 / B300) and RTX PRO Blackwell / RTX 5090. For a GPU outside that
-set, rebuild with ``COLMAP_CUDA_ARCH=<arch> pixi run install-colmap``.
+environment prefix. It is not standalone — the ~150 shared libraries it links
+against come from ``pixi install``.
+
+The default ``COLMAP_CUDA_ARCH`` covers ``80;86;89;100;103;120`` — A100,
+Ampere RTX, Ada, datacenter Blackwell, and RTX PRO Blackwell / RTX 5090.
+The MVS PatchMatch kernel uses ``compute_90`` PTX for Blackwell because of
+an NVCC compiler workaround; it is JIT-compiled on first use. For a GPU
+outside the configured set, rebuild with
+``COLMAP_CUDA_ARCH=<arch> pixi run install-colmap``.
 
 Regenerate the tarball with ``pixi run bash scripts/pixi/package_release.sh``.
 
