@@ -577,6 +577,9 @@ if(ONNX_ENABLED)
                 endif()
             endif()
             set(onnxruntime_CONFIG_DIR_HINTS ${ONNX_DATA_DIR}/cmake CACHE PATH "ONNX Runtime config directory hints")
+            # A previously installed ONNX Runtime in CMAKE_PREFIX_PATH can take
+            # precedence over PATHS hints in find_package. Use the fetched config.
+            set(onnxruntime_DIR "${ONNX_DATA_DIR}/cmake")
         endif()
 
         set(onnxruntime_INCLUDE_DIR_HINTS ${onnxruntime_BINARY_DIR}/include CACHE PATH "ONNX Runtime include directory hints")
