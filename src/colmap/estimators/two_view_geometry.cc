@@ -335,7 +335,7 @@ TwoViewGeometry EstimateCalibratedHomography(
   // Estimate planar or panoramic model. Estimated on image points rather than
   // rays: the caller only guarantees a pinhole projection here, not a focal
   // length prior, so no rays can be built.
-  LORANSAC<HomographyMatrixEstimator,
+  LORANSAC<HomographyMatrixCheiralityEstimator,
            HomographyMatrixEstimator,
            MEstimatorSupportMeasurer>
       H_ransac(RansacOptionsWithMinInlierRatio(options));
@@ -408,7 +408,7 @@ TwoViewGeometry EstimateUncalibratedTwoViewGeometry(
 
   // Budget the search for the inlier ratio that the homography must reach
   // to be selected below, since a weaker one is discarded anyway.
-  LORANSAC<HomographyMatrixEstimator,
+  LORANSAC<HomographyMatrixCheiralityEstimator,
            HomographyMatrixEstimator,
            MEstimatorSupportMeasurer>
       H_ransac(HomographyRansacOptions(
@@ -638,21 +638,14 @@ TwoViewGeometry EstimateSphericalTwoViewGeometry(
 
 bool TwoViewGeometryOptions::Check() const {
   CHECK_OPTION_GE(min_num_inliers, 0);
-  CHECK_OPTION_GE(min_inlier_ratio, 0);
-  CHECK_OPTION_LE(min_inlier_ratio, 1);
-  CHECK_OPTION_GE(min_E_F_inlier_ratio, 0);
-  CHECK_OPTION_LE(min_E_F_inlier_ratio, 1);
-  CHECK_OPTION_GE(max_H_inlier_ratio, 0);
-  CHECK_OPTION_LE(max_H_inlier_ratio, 1);
-  CHECK_OPTION_GE(watermark_min_inlier_ratio, 0);
-  CHECK_OPTION_LE(watermark_min_inlier_ratio, 1);
-  CHECK_OPTION_GE(watermark_border_size, 0);
-  CHECK_OPTION_LE(watermark_border_size, 1);
+  CHECK_OPTION_IN(min_inlier_ratio, 0, 1);
+  CHECK_OPTION_IN(min_E_F_inlier_ratio, 0, 1);
+  CHECK_OPTION_IN(max_H_inlier_ratio, 0, 1);
+  CHECK_OPTION_IN(watermark_min_inlier_ratio, 0, 1);
+  CHECK_OPTION_IN(watermark_border_size, 0, 1);
   CHECK_OPTION_GT(ransac_options.max_error, 0);
-  CHECK_OPTION_GE(ransac_options.min_inlier_ratio, 0);
-  CHECK_OPTION_LE(ransac_options.min_inlier_ratio, 1);
-  CHECK_OPTION_GE(ransac_options.confidence, 0);
-  CHECK_OPTION_LE(ransac_options.confidence, 1);
+  CHECK_OPTION_IN(ransac_options.min_inlier_ratio, 0, 1);
+  CHECK_OPTION_IN(ransac_options.confidence, 0, 1);
   CHECK_OPTION_LE(ransac_options.min_num_trials, ransac_options.max_num_trials);
   CHECK_OPTION_GE(ransac_options.random_seed, -1);
   return true;
@@ -1131,20 +1124,35 @@ TwoViewGeometry EstimateCalibratedTwoViewGeometry(
   const size_t competing_num_inliers =
       std::min(E_report.support.num_inliers, F_report.support.num_inliers);
   // Undistorted pinhole cameras keep the pixel estimator, where the two are
-  // algebraically equivalent.
+  // algebraically equivalent. Fisheye and spherical projections are non-linear
+  // even with zero distortion coefficients, so they take the ray path.
   const RANSACOptions H_ransac_options =
       HomographyRansacOptions(options, competing_num_inliers, matches.size());
-  const auto H_report =
-      (camera1.IsUndistorted() && camera2.IsUndistorted())
-          ? LORANSAC<HomographyMatrixEstimator,
-                     HomographyMatrixEstimator,
-                     MEstimatorSupportMeasurer>(H_ransac_options)
-                .Estimate(matched_img_points1, matched_img_points2)
-          : EstimateHomographyMatrixFromRays(H_ransac_options,
-                                             camera1,
-                                             matched_img_points1,
-                                             camera2,
-                                             matched_img_points2);
+  HomographyMatrixReport H_report;
+  if (camera1.IsPerspectivePinhole() && camera1.IsUndistorted() &&
+      camera2.IsPerspectivePinhole() && camera2.IsUndistorted()) {
+    auto pixel_report = LORANSAC<HomographyMatrixCheiralityEstimator,
+                                 HomographyMatrixEstimator,
+                                 MEstimatorSupportMeasurer>(H_ransac_options)
+                            .Estimate(matched_img_points1, matched_img_points2);
+    // Same layout as HomographyMatrixReport, modulo the hypothesis estimator
+    // tag; move field-wise to share the code below with the ray branch. Only
+    // on success: a failed report carries partial state (a sub-minimal model
+    // without an inlier mask), which must not leak into H_report.
+    if (pixel_report.success) {
+      H_report.success = pixel_report.success;
+      H_report.num_trials = pixel_report.num_trials;
+      H_report.support = pixel_report.support;
+      H_report.inlier_mask = std::move(pixel_report.inlier_mask);
+      H_report.model = std::move(pixel_report.model);
+    }
+  } else {
+    H_report = EstimateHomographyMatrixFromRays(H_ransac_options,
+                                                camera1,
+                                                matched_img_points1,
+                                                camera2,
+                                                matched_img_points2);
+  }
   geometry.H = H_report.model;
 
   if (!CheckRansacResultOrDegenerate(
@@ -1284,7 +1292,7 @@ TwoViewGeometry EstimateSharedFocalTwoViewGeometry(
   // two-view focal recovery is ill-posed and the 6-point solver returns a
   // meaningless focal length.
   // Budget the estimation as in EstimateUncalibratedTwoViewGeometry.
-  LORANSAC<HomographyMatrixEstimator,
+  LORANSAC<HomographyMatrixCheiralityEstimator,
            HomographyMatrixEstimator,
            MEstimatorSupportMeasurer>
       H_ransac(HomographyRansacOptions(
@@ -1463,12 +1471,12 @@ TwoViewGeometry EstimateOneSidedFocalTwoViewGeometry(
   // no inliers, so the checks below then behave as a failed estimate.
   const bool has_image_plane = !camera2.IsSpherical();
   // Budget the estimation as in EstimateUncalibratedTwoViewGeometry.
-  LORANSAC<HomographyMatrixEstimator,
+  LORANSAC<HomographyMatrixCheiralityEstimator,
            HomographyMatrixEstimator,
            MEstimatorSupportMeasurer>
       H_ransac(HomographyRansacOptions(
           options, focal_report.support.num_inliers, matches.size()));
-  LORANSAC<HomographyMatrixEstimator,
+  LORANSAC<HomographyMatrixCheiralityEstimator,
            HomographyMatrixEstimator,
            MEstimatorSupportMeasurer>::Report H_report;
   if (has_image_plane) {
