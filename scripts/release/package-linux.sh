@@ -54,9 +54,18 @@ if [[ "$BUILD_VARIANT" != cpu ]]; then
     for notice in /usr/share/doc/{cuda*,libcu*,libnv*}/copyright; do
         install -Dm644 "$notice" "${appdir}/licenses/nvidia/$(basename "$(dirname "$notice")").txt"
     done
-elif find "${appdir}/usr/lib" -maxdepth 1 \( -name 'libcudart.so*' -o -name 'libonnxruntime_providers_cuda.so' \) -print -quit | grep -q .; then
-    echo "CPU distribution unexpectedly contains CUDA libraries" >&2
-    exit 1
+else
+    cuda_library="$(find "${appdir}/usr/lib" -maxdepth 1 \( \
+        -name 'libcuda*.so*' -o -name 'libcublas*.so*' -o \
+        -name 'libcudnn*.so*' -o -name 'libcufft*.so*' -o \
+        -name 'libcurand*.so*' -o -name 'libcusolver*.so*' -o \
+        -name 'libcusparse*.so*' -o -name 'libnvJitLink*.so*' -o \
+        -name 'libnvrtc*.so*' -o -name 'libnvidia*.so*' -o \
+        -name 'libonnxruntime_providers_cuda.so' \) -print -quit)"
+    if [[ -n "$cuda_library" ]]; then
+        echo "CPU distribution unexpectedly contains: $cuda_library" >&2
+        exit 1
+    fi
 fi
 
 if [[ -n "$(find "${appdir}/usr/lib" -maxdepth 1 -name 'libcuda.so*' -print -quit)" ]]; then
