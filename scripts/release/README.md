@@ -8,8 +8,8 @@ of an NVCC workaround. GTX 1070 (sm_61) is not included.
 Extract an archive and run `./colmap/colmap gui` or `./colmap/colmap -h`.
 The archive includes CUDA user-space libraries and cuDNN, but not the NVIDIA
 driver. Ubuntu 24.04 or a compatible Linux distribution, a compatible driver,
-and system graphics libraries are required. CUDA 13 requires an R580 or later
-driver; PTX JIT or newer toolkit features may require a newer driver. See the
+and system graphics libraries are required. CUDA 13.0.2 recommends NVIDIA driver
+580.95.05 or newer. PTX JIT or newer toolkit features may require a newer driver. See the
 [NVIDIA compatibility documentation](https://docs.nvidia.com/deploy/cuda-compatibility/).
 
 The workflow checks the archive with an X11 GUI launch on Xvfb, and with CPU

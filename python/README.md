@@ -18,7 +18,9 @@ install it with `python -m pip install /path/to/the/downloaded.whl`. Do not
 install multiple pycolmap variants into the same environment: they provide the
 same `pycolmap` module. CUDA wheels install NVIDIA runtime dependencies and
 require a compatible system driver. GPU inference requires a supported GPU;
-the CPU wheel does not require CUDA. Models are downloaded on first use.
+the CPU wheel does not require CUDA. The CUDA 13 wheel constrains cuDNN to the
+9.19 series; an NVIDIA driver of at least 580.95.05 is recommended for CUDA
+13.0.2. Models are downloaded on first use.
 
 <details>
 <summary>[Building PyCOLMAP from source - click to expand]</summary>

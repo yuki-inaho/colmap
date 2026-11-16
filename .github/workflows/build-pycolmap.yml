@@ -132,9 +132,14 @@ jobs:
             echo "CIBW_ENVIRONMENT_PASS_LINUX=${CIBW_ENVIRONMENT_PASS_LINUX} CUDA_VERSION" >> "$GITHUB_ENV"
             # Keep CUDA major versions in separate distributions.
             pip install tomlkit
+            CUDNN_REQUIREMENT="nvidia-cudnn-cu${CUDA_MAJOR}>=9,<10"
+            if [ "${CUDA_MAJOR}" = "13" ]; then
+              # Newer cuDNN releases can require drivers newer than R580.
+              CUDNN_REQUIREMENT="nvidia-cudnn-cu13>=9.19.1,<9.20"
+            fi
             python python/ci/update_pyproject_toml.py --name "pycolmap-cuda${CUDA_MAJOR}" --add-deps \
               "cuda-toolkit[cublas,cudart,curand,cufft,nvjitlink,nvrtc]~=${CUDA_VERSION}.0" \
-              "nvidia-cudnn-cu${CUDA_MAJOR}>=9,<10"
+              "${CUDNN_REQUIREMENT}"
           else
             CIBW_MANYLINUX_X86_64_IMAGE="quay.io/pypa/manylinux_2_28_x86_64"
           fi
