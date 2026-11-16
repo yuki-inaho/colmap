@@ -11,7 +11,7 @@ apt-get update
 apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build git curl ca-certificates binutils patchelf \
     libboost-program-options-dev libboost-graph-dev libboost-system-dev \
-    libeigen3-dev libopenimageio-dev libmetis-dev libgoogle-glog-dev \
+    libeigen3-dev libopenimageio-dev openimageio-tools libmetis-dev libgoogle-glog-dev \
     libsqlite3-dev libglew-dev qt6-base-dev qt6-svg-dev libceres-dev \
     libsuitesparse-dev libcurl4-openssl-dev libssl-dev libgl1-mesa-dev \
     python3 python3-numpy python3-pil sqlite3
