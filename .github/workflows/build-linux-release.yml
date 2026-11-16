@@ -1,0 +1,55 @@
+name: Linux CUDA release archives
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-linux-release.yml'
+      - 'scripts/release/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'src/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cuda: '12.9'
+            image: nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
+          - cuda: '13.0'
+            image: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v2.0.0
+        with:
+          preinstalled-runtimes: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+      - name: Build, package and run CPU inference smoke test
+        run: |
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/work" \
+            --workdir /work \
+            --env COLMAP_CONTAINER_BUILD=1 \
+            --env CUDA_RELEASE='${{ matrix.cuda }}' \
+            '${{ matrix.image }}' \
+            bash scripts/release/build-linux-container.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: colmap-linux-cuda${{ matrix.cuda }}
+          path: dist/colmap-linux-x86_64-cuda${{ matrix.cuda }}-*.tar.gz*
+          if-no-files-found: error
+          compression-level: 0
