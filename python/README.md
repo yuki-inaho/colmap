@@ -12,6 +12,14 @@ pip install pycolmap
 
 The wheels are automatically built and pushed to [PyPI](https://pypi.org/project/pycolmap/) at each release. To benefit from GPU acceleration, wheels built for CUDA 12 (only for Linux - for now) are available under the [package `pycolmap-cuda12`](https://pypi.org/project/pycolmap-cuda12/).
 
+This fork also builds Linux x86-64 release wheels with ONNX Runtime bundled.
+Choose one CPU, CUDA 12, or CUDA 13 wheel from the fork's GitHub Releases and
+install it with `python -m pip install /path/to/the/downloaded.whl`. Do not
+install multiple pycolmap variants into the same environment: they provide the
+same `pycolmap` module. CUDA wheels install NVIDIA runtime dependencies and
+require a compatible system driver. GPU inference requires a supported GPU;
+the CPU wheel does not require CUDA. Models are downloaded on first use.
+
 <details>
 <summary>[Building PyCOLMAP from source - click to expand]</summary>
 
@@ -69,6 +77,21 @@ pycolmap.stereo_fusion(mvs_path / "dense.ply", mvs_path, output_type="ply")
 PyCOLMAP can leverage the GPU for feature extraction, matching, and multi-view stereo if COLMAP was compiled with CUDA support. Similarly, PyCOLMAP can run Delaunay Triangulation and Advancing Front Surface Reconstruction if COLMAP was compiled with CGAL support. This requires to build the package from source and is not available with the PyPI wheels.
 
 ### Configuration Options
+
+With an ONNX-enabled wheel, ALIKED extraction and LightGlue matching can run
+on the CPU or CUDA GPU:
+
+```python
+import pycolmap
+
+device = pycolmap.Device.cuda  # use pycolmap.Device.cpu for the CPU wheel
+extraction = pycolmap.FeatureExtractionOptions()
+extraction.type = pycolmap.FeatureExtractorType.ALIKED_N16ROT
+matching = pycolmap.FeatureMatchingOptions()
+matching.type = pycolmap.FeatureMatcherType.ALIKED_LIGHTGLUE
+pycolmap.extract_features(database_path, image_dir, extraction_options=extraction, device=device)
+pycolmap.match_exhaustive(database_path, matching_options=matching, device=device)
+```
 
 All of the above steps are easily configurable with python dicts which are recursively merged into their respective defaults, for example:
 

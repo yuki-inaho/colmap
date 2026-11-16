@@ -5,6 +5,8 @@ project(${SKBUILD_PROJECT_NAME} VERSION ${SKBUILD_PROJECT_VERSION})
 option(GENERATE_STUBS "Whether to generate stubs" ON)
 option(CCACHE_ENABLED "Whether to enable compiler caching, if available" ON)
 option(WERROR_ENABLED "Whether to treat compiler warnings as errors" OFF)
+option(PYCOLMAP_BUNDLE_ONNX_RUNTIME "Bundle ONNX Runtime in Linux wheels" OFF)
+set(PYCOLMAP_CUDA_MAJOR "0" CACHE STRING "CUDA major version for bundled Linux wheels; 0 for CPU")
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -73,6 +75,32 @@ elseif(TARGET onnxruntime::onnxruntime)
         get_filename_component(ONNX_RPATH "${_ort_location}" DIRECTORY)
         message(STATUS "ONNX Runtime library directory (from target): ${ONNX_RPATH}")
     endif()
+endif()
+
+if(PYCOLMAP_BUNDLE_ONNX_RUNTIME)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT ONNX_RPATH)
+        message(FATAL_ERROR "Bundling requires Linux and an ONNX-enabled COLMAP build")
+    endif()
+    if(NOT PYCOLMAP_CUDA_MAJOR MATCHES "^(0|12|13)$")
+        message(FATAL_ERROR "PYCOLMAP_CUDA_MAJOR must be 0, 12 or 13")
+    endif()
+    get_filename_component(_ort_core "${ONNX_RPATH}/libonnxruntime.so.1" REALPATH)
+    if(NOT EXISTS "${_ort_core}")
+        message(FATAL_ERROR "ONNX Runtime not found in ${ONNX_RPATH}")
+    endif()
+    install(FILES "${_ort_core}" DESTINATION pycolmap/_ort RENAME libonnxruntime.so.1)
+    install(FILES "${ONNX_RPATH}/libonnxruntime_providers_shared.so"
+            DESTINATION pycolmap/_ort)
+    if(NOT PYCOLMAP_CUDA_MAJOR STREQUAL "0")
+        install(FILES "${ONNX_RPATH}/libonnxruntime_providers_cuda.so"
+                DESTINATION pycolmap/_ort)
+    endif()
+    install(FILES "${ONNX_RPATH}/../share/colmap/third-party/onnxruntime/LICENSE"
+                  "${ONNX_RPATH}/../share/colmap/third-party/onnxruntime/ThirdPartyNotices.txt"
+            DESTINATION pycolmap/_ort)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/_build_config.py"
+         "CUDA_MAJOR = ${PYCOLMAP_CUDA_MAJOR}\n")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/_build_config.py" DESTINATION pycolmap)
 endif()
 
 if (CMAKE_VERSION VERSION_LESS 3.18)

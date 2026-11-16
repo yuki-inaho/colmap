@@ -488,8 +488,8 @@ if(ONNX_ENABLED)
 
         set(ONNX_VERSION "1.30.0")
         # ONNX Runtime now ships separate GPU binaries per CUDA major version
-        # (gpu_cuda12 / gpu_cuda13). We consume the CUDA 12 build below, so CUDA
-        # >= 12 is required for the GPU execution provider.
+        # (gpu_cuda12 / gpu_cuda13). CUDA >= 12 is required for the GPU
+        # execution provider.
         if(ONNX_VERSION VERSION_GREATER_EQUAL "1.22"
            AND CUDA_ENABLED AND CUDA_FOUND AND CUDAToolkit_VERSION VERSION_LESS "12.0")
             message(WARNING
@@ -522,7 +522,13 @@ if(ONNX_ENABLED)
                     ${_fetch_content_declare_args}
                 )
             else()
-                if(CUDA_ENABLED)
+                if(CUDA_ENABLED AND CUDAToolkit_VERSION VERSION_GREATER_EQUAL "13.0")
+                    FetchContent_Declare(onnxruntime
+                        URL https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-x64-gpu_cuda13-${ONNX_VERSION}.tgz
+                        URL_HASH SHA256=382d79133112388cf94ce5855789b7c9bef12bef76a08b6b277e5a317213adcd
+                        ${_fetch_content_declare_args}
+                    )
+                elseif(CUDA_ENABLED)
                     FetchContent_Declare(onnxruntime
                         URL https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-x64-gpu_cuda12-${ONNX_VERSION}.tgz
                         URL_HASH SHA256=f9886932ee7bb0b4d3fcab736a392d4ff5efaa0672b47f19f0cec03437cf64f1
@@ -587,6 +593,9 @@ if(ONNX_ENABLED)
         find_package(onnxruntime ${COLMAP_FIND_TYPE})
 
         install(DIRECTORY "${onnxruntime_BINARY_DIR}/include/" TYPE INCLUDE)
+        install(FILES "${onnxruntime_SOURCE_DIR}/LICENSE"
+                      "${onnxruntime_SOURCE_DIR}/ThirdPartyNotices.txt"
+                DESTINATION "${CMAKE_INSTALL_DATADIR}/colmap/third-party/onnxruntime")
         if(IS_WINDOWS)
             # On Windows, selectively install Libs to lib/. Always install core Libs.
             # For not supporting TensorRT/ROCM/etc. as a runtime, so not installing it intentionally.

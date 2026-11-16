@@ -37,8 +37,8 @@ yum install -y \
 source scl_source enable gcc-toolset-12
 
 CUDA_HOME="/usr/local/cuda"
-if [ ! -d "${CUDA_HOME}" ] && [ -d "${CUDA_HOME}-12.9" ]; then
-    ln -s "${CUDA_HOME}-12.9" "${CUDA_HOME}"
+if [ ! -d "${CUDA_HOME}" ] && [ -n "${CUDA_VERSION:-}" ] && [ -d "${CUDA_HOME}-${CUDA_VERSION}" ]; then
+    ln -s "${CUDA_HOME}-${CUDA_VERSION}" "${CUDA_HOME}"
 fi
 if [ -d "${CUDA_HOME}" ]; then
     export PATH="${CUDA_HOME}/bin:${PATH}"
@@ -72,8 +72,9 @@ cd ${CURRDIR}
 mkdir build && cd build
 cmake3 .. -GNinja \
     -DCUDA_ENABLED="${BUILD_CUDA_ENABLED}" \
-    -DCMAKE_CUDA_ARCHITECTURES="all-major" \
-    -DONNX_ENABLED=OFF \
+    -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90;100;103;120" \
+    -DONNX_ENABLED=ON \
+    -DFETCH_ONNX=ON \
     -DGUI_ENABLED=OFF \
     -DCGAL_ENABLED=OFF \
     -DLSD_ENABLED=OFF \

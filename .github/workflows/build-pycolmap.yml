@@ -21,7 +21,7 @@ jobs:
   # wheels are built by the build-gated job, which reuses this job's name, env,
   # and steps through YAML anchors.
   build:
-    name: &build-name ${{ matrix.config.os }} ${{ matrix.config.arch }} ${{ matrix.config.cudaEnabled && 'CUDA' || '' }}
+    name: &build-name ${{ matrix.config.os }} ${{ matrix.config.arch }} ${{ matrix.config.cudaVersion && format('CUDA {0}', matrix.config.cudaVersion) || '' }}
     runs-on: ${{ matrix.config.os }}
     permissions:
       contents: read
@@ -29,13 +29,13 @@ jobs:
     strategy:
       matrix:
         config: [
-          {os: ubuntu-24.04, cudaEnabled: false, ccacheMaxSize: 800M},
+          {os: ubuntu-24.04, arch: x64, deploymentTarget: '', cudaEnabled: false, cudaVersion: '', ccacheMaxSize: 800M},
         ]
     env: &build-env
       COMPILER_CACHE_DIR: ${{ github.workspace }}/compiler-cache
       CCACHE_DIR: ${{ github.workspace }}/compiler-cache/ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
-      CACHE_PLATFORM: ${{ matrix.config.os }}-arch_${{ matrix.config.arch || 'x64' }}-cuda_${{ matrix.config.cudaEnabled }}-deployment_${{ matrix.config.deploymentTarget || 'default' }}
+      CACHE_PLATFORM: ${{ matrix.config.os }}-arch_${{ matrix.config.arch || 'x64' }}-cuda_${{ matrix.config.cudaVersion || 'cpu' }}-deployment_${{ matrix.config.deploymentTarget || 'default' }}
       # cibuildwheel creates a different temporary build directory for every
       # wheel and run. Do not include that directory in compiler cache keys.
       CCACHE_NOHASHDIR: "true"
@@ -97,7 +97,7 @@ jobs:
           CONFIG_SETTINGS="${CONFIG_SETTINGS} cmake.define.VCPKG_INSTALLED_DIR=/project/build/vcpkg_installed"
           CONFIG_SETTINGS="${CONFIG_SETTINGS} cmake.define.pybind11_DIR=/compiler-cache/build-requirements/pybind11/share/cmake/pybind11"
           CONFIG_SETTINGS="${CONFIG_SETTINGS} cmake.define.WERROR_ENABLED=ON"
-          echo "CIBW_CONFIG_SETTINGS_LINUX=${CONFIG_SETTINGS}" >> "$GITHUB_ENV"
+          CONFIG_SETTINGS="${CONFIG_SETTINGS} cmake.define.PYCOLMAP_BUNDLE_ONNX_RUNTIME=ON"
 
           # Remap caching paths to the container
           CONTAINER_COMPILER_CACHE_DIR="/compiler-cache"
@@ -121,17 +121,26 @@ jobs:
           CIBW_ENVIRONMENT_PASS_LINUX="VCPKG_TARGET_TRIPLET VCPKG_INSTALLATION_ROOT CMAKE_TOOLCHAIN_FILE VCPKG_BINARY_SOURCES CONTAINER_COMPILER_CACHE_DIR CCACHE_DIR CCACHE_BASEDIR CCACHE_NOHASHDIR CCACHE_COMPILERCHECK CCACHE_MAXSIZE FETCHCONTENT_BASE_DIR"
           echo "CIBW_ENVIRONMENT_PASS_LINUX=${CIBW_ENVIRONMENT_PASS_LINUX}" >> "$GITHUB_ENV"
 
+          CUDA_MAJOR=0
+          CIBW_REPAIR_WHEEL_COMMAND="auditwheel repair --exclude libonnxruntime.so.1 --exclude libcuda.so.1 --exclude libcudart* --exclude libcurand* --exclude libcublas* --exclude libcufft* --exclude libnvrtc* --exclude libnvJitLink* --exclude libcudnn* -w {dest_dir} {wheel}"
+          echo "CIBW_REPAIR_WHEEL_COMMAND=${CIBW_REPAIR_WHEEL_COMMAND}" >> "$GITHUB_ENV"
           if [ "${{ matrix.config.cudaEnabled }}" = "true" ]; then
-            CIBW_MANYLINUX_X86_64_IMAGE="pytorch/manylinux2_28-builder:cuda12.9"
-            CIBW_REPAIR_WHEEL_COMMAND="auditwheel repair --exclude libcudart* --exclude libcurand* -w {dest_dir} {wheel}"
-            echo "CIBW_REPAIR_WHEEL_COMMAND=${CIBW_REPAIR_WHEEL_COMMAND}" >> "$GITHUB_ENV"
-            # Edit pyproject.toml to change package name to pycolmap-cuda12 and add CUDA Runtime native Libraries and CURAND native runtime libraries to dependencies
+            CUDA_VERSION="${{ matrix.config.cudaVersion }}"
+            CUDA_MAJOR="${CUDA_VERSION%%.*}"
+            CIBW_MANYLINUX_X86_64_IMAGE="pytorch/manylinux2_28-builder:cuda${CUDA_VERSION}"
+            echo "CUDA_VERSION=${CUDA_VERSION}" >> "$GITHUB_ENV"
+            echo "CIBW_ENVIRONMENT_PASS_LINUX=${CIBW_ENVIRONMENT_PASS_LINUX} CUDA_VERSION" >> "$GITHUB_ENV"
+            # Keep CUDA major versions in separate distributions.
             pip install tomlkit
-            python python/ci/update_pyproject_toml.py --name "pycolmap-cuda12" --add-deps "cuda-toolkit[cudart,curand]>=12,<13"
+            python python/ci/update_pyproject_toml.py --name "pycolmap-cuda${CUDA_MAJOR}" --add-deps \
+              "cuda-toolkit[cublas,cudart,curand,cufft,nvjitlink,nvrtc]>=${CUDA_VERSION},<$((CUDA_MAJOR + 1))" \
+              "nvidia-cudnn-cu${CUDA_MAJOR}>=9,<10"
           else
             CIBW_MANYLINUX_X86_64_IMAGE="quay.io/pypa/manylinux_2_28_x86_64"
           fi
 
+          CONFIG_SETTINGS="${CONFIG_SETTINGS} cmake.define.PYCOLMAP_CUDA_MAJOR=${CUDA_MAJOR}"
+          echo "CIBW_CONFIG_SETTINGS_LINUX=${CONFIG_SETTINGS}" >> "$GITHUB_ENV"
           echo "CIBW_MANYLINUX_X86_64_IMAGE=${CIBW_MANYLINUX_X86_64_IMAGE}" >> "$GITHUB_ENV"
 
 
@@ -162,7 +171,7 @@ jobs:
       - name: Archive wheels
         uses: actions/upload-artifact@v7
         with:
-          name: pycolmap-${{ matrix.config.os }}-${{ matrix.config.arch }}${{ matrix.config.cudaEnabled && '-CUDA' || '' }}
+          name: pycolmap-${{ matrix.config.os }}-${{ matrix.config.arch }}${{ matrix.config.cudaVersion && format('-CUDA{0}', matrix.config.cudaVersion) || '' }}
           path: wheelhouse/pycolmap*.whl
 
       - name: Save compiler cache
@@ -189,7 +198,8 @@ jobs:
     strategy:
       matrix:
         config: [
-          {os: ubuntu-24.04, cudaEnabled: true, ccacheMaxSize: 850M},
+          {os: ubuntu-24.04, arch: x64, deploymentTarget: '', cudaEnabled: true, cudaVersion: '12.9', ccacheMaxSize: 850M},
+          {os: ubuntu-24.04, arch: x64, deploymentTarget: '', cudaEnabled: true, cudaVersion: '13.0', ccacheMaxSize: 850M},
         ]
     env: *build-env
     steps: *build-steps
@@ -251,7 +261,7 @@ jobs:
       # that matches the commit.
       - uses: actions/download-artifact@v8
         with:
-          name: pycolmap-ubuntu-24.04-
+          name: pycolmap-ubuntu-24.04-x64
           path: wheelhouse
 
       - name: Install pycolmap + Sphinx deps
