@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 @pytest.mark.skipif(
@@ -21,8 +21,9 @@ def test_aliked_lightglue_end_to_end(tmp_path: Path) -> None:
     pixels = np.random.default_rng(42).integers(
         0, 256, size=(256, 256, 3), dtype=np.uint8
     )
-    Image.fromarray(pixels).save(images / "one.png")
-    Image.fromarray(pixels).save(images / "two.png")
+    image = Image.fromarray(pixels).filter(ImageFilter.GaussianBlur(2))
+    image.save(images / "one.png")
+    image.save(images / "two.png")
 
     extraction = pycolmap.FeatureExtractionOptions()
     extraction.type = pycolmap.FeatureExtractorType.ALIKED_N16ROT

@@ -44,11 +44,12 @@ bash /work/scripts/release/package-linux.sh /work/install-release-ci "$archive"
 # Exercise the unpacked distribution without the build environment's libraries.
 tar -xzf "$archive" -C "$tools_dir"
 mkdir "${tools_dir}/images"
-python3 -c 'import numpy as np; from PIL import Image; import sys; a=np.random.default_rng(42).integers(0,256,(256,256,3),dtype=np.uint8); [Image.fromarray(a).save(f"{sys.argv[1]}/{i}.png") for i in (1,2)]' "${tools_dir}/images"
+python3 -c 'import numpy as np; from PIL import Image,ImageFilter; import sys; a=np.random.default_rng(42).integers(0,256,(256,256,3),dtype=np.uint8); im=Image.fromarray(a).filter(ImageFilter.GaussianBlur(2)); [im.save(f"{sys.argv[1]}/{i}.png") for i in (1,2)]' "${tools_dir}/images"
 binary="${tools_dir}/colmap/colmap"
 env -u LD_LIBRARY_PATH "$binary" feature_extractor --database_path "${tools_dir}/test.db" \
     --image_path "${tools_dir}/images" --FeatureExtraction.type ALIKED_N16ROT \
-    --FeatureExtraction.use_gpu 0 --FeatureExtraction.num_threads 1
+    --FeatureExtraction.use_gpu 0 --FeatureExtraction.num_threads 1 \
+    --AlikedExtraction.max_num_features 512 --AlikedExtraction.min_score 0.05
 env -u LD_LIBRARY_PATH "$binary" exhaustive_matcher --database_path "${tools_dir}/test.db" \
     --FeatureMatching.type ALIKED_LIGHTGLUE --FeatureMatching.use_gpu 0 \
     --FeatureMatching.num_threads 1 --FeatureMatching.skip_geometric_verification 1
