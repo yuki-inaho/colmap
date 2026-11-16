@@ -309,6 +309,8 @@ class GlobalMapperTrackOptionsWidget : public OptionsWidget {
         "required_tracks_per_view");
     AddOptionInt(&options->global_mapper->mapper.track_min_num_views_per_track,
                  "min_num_views_per_track");
+    AddOptionInt(&options->global_mapper->mapper.track_max_num_views_per_track,
+                 "max_num_views_per_track");
     AddOptionIntUnlimited(&options->global_mapper->mapper.keep_max_num_tracks,
                           "keep_max_num_tracks");
   }
@@ -342,8 +344,8 @@ class GlobalMapperPositioningOptionsWidget : public OptionsWidget {
     AddOptionBool(&global_positioning.optimize_positions, "optimize_positions");
     AddOptionBool(&global_positioning.optimize_points, "optimize_points");
     AddOptionBool(&global_positioning.optimize_scales, "optimize_scales");
-    AddOptionDouble(&global_positioning.loss_function_scale,
-                    "loss_function_scale");
+    AddOptionDouble(
+        &global_positioning.loss_function_scale, "loss_function_scale", -1.0);
     AddOptionInt(&global_positioning.solver_options.max_num_iterations,
                  "max_num_iterations");
   }

@@ -7,6 +7,8 @@
 #include "colmap/sensor/models.h"
 #include "colmap/util/hash_containers.h"
 
+#include <algorithm>
+
 namespace colmap {
 namespace {
 
@@ -207,8 +209,8 @@ Camera UndistortCamera(const UndistortCameraOptions& options,
                             max_scale_y * (1.0 - options.blank_pixels));
 
     // Clip the scaling factors.
-    scale_x = Clamp(scale_x, options.min_scale, options.max_scale);
-    scale_y = Clamp(scale_y, options.min_scale, options.max_scale);
+    scale_x = std::clamp(scale_x, options.min_scale, options.max_scale);
+    scale_y = std::clamp(scale_y, options.min_scale, options.max_scale);
 
     // Scale undistorted camera dimensions.
     const size_t orig_undistorted_camera_width = undistorted_camera.width;
@@ -408,13 +410,15 @@ void RectifyStereoCameras(const Camera& camera1,
   *H2 = K * R2 * camera2.CalibrationMatrix().inverse();
 
   // Determine the inverse projection matrix that transforms disparity values
-  // to 3D world coordinates: [x, y, disparity, 1] * Q = [X, Y, Z, 1] * w.
-  *Q = Eigen::Matrix4d::Identity();
-  (*Q)(3, 0) = -K(1, 2);
-  (*Q)(3, 1) = -K(0, 2);
+  // to 3D coordinates in the rectified first camera frame:
+  // [x, y, disparity, 1] * Q = [X, Y, Z, 1] * w.
+  *Q = Eigen::Matrix4d::Zero();
+  (*Q)(0, 0) = 1;
+  (*Q)(1, 1) = 1;
+  (*Q)(3, 0) = -K(0, 2);
+  (*Q)(3, 1) = -K(1, 2);
   (*Q)(3, 2) = K(0, 0);
   (*Q)(2, 3) = -1 / t(0);
-  (*Q)(3, 3) = 0;
 }
 
 void RectifyAndUndistortStereoImages(const UndistortCameraOptions& options,

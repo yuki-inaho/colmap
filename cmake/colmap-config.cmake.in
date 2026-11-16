@@ -43,6 +43,16 @@ set(OPENMP_ENABLED @OPENMP_ENABLED@)
 set(CUDA_ENABLED @CUDA_ENABLED@)
 set(CUDA_MIN_VERSION @CUDA_MIN_VERSION@)
 
+set(HIP_ENABLED @HIP_ENABLED@)
+if(HIP_ENABLED)
+    # Record the ROCm installation the library was built against, so that a
+    # consumer recreates the same hip:: and roc:: targets even when ROCm is not
+    # installed in the default location. A cache-level -DROCM_PATH still wins;
+    # the ROCM_PATH environment variable is only consulted when no cached
+    # value exists.
+    set(ROCM_PATH "@ROCM_PATH@" CACHE PATH "Path to ROCm installation")
+endif()
+
 set(ONNX_ENABLED @ONNX_ENABLED@)
 
 set(DOWNLOAD_ENABLED @DOWNLOAD_ENABLED@)
@@ -54,6 +64,11 @@ set(CGAL_ENABLED @CGAL_ENABLED@)
 set(MVS_ENABLED @MVS_ENABLED@)
 
 set(LSD_ENABLED @LSD_ENABLED@)
+
+# Whether the installed COLMAP was built with interprocedural optimization.
+# Consumers linking COLMAP's static libraries (e.g. pycolmap) must match this:
+# linking non-IPO archives into an IPO binary fails with GCC.
+set(COLMAP_INTERPROCEDURAL_OPTIMIZATION @COLMAP_INTERPROCEDURAL_OPTIMIZATION@)
 
 set(FETCH_POSELIB @FETCH_POSELIB@)
 

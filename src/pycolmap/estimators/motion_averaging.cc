@@ -3,10 +3,14 @@
 #include "colmap/estimators/global_positioning.h"
 #include "colmap/estimators/gravity_refinement.h"
 #include "colmap/estimators/rotation_averaging.h"
+#include "colmap/estimators/rotation_averaging_ceres.h"
+#include "colmap/estimators/rotation_averaging_l1_irls.h"
+#include "colmap/scene/database_cache.h"
 
 #include "pycolmap/helpers.h"
 
 #include <pybind11/eigen.h>
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -24,10 +28,19 @@ void BindGlobalPositioner(py::module& m) {
           .def_readwrite("generate_random_points",
                          &GlobalPositionerOptions::generate_random_points,
                          "Whether to initialize 3D point positions randomly.")
-          .def_readwrite("generate_scales",
-                         &GlobalPositionerOptions::generate_scales,
-                         "Whether to initialize scales to constant 1 or derive "
-                         "from positions.")
+          .def_readwrite(
+              "initialize_scales_from_geometry",
+              &GlobalPositionerOptions::initialize_scales_from_geometry,
+              "Derive scales from initialized camera and point positions; "
+              "otherwise use 1.")
+          .def_readwrite("fix_first_scale",
+                         &GlobalPositionerOptions::fix_first_scale,
+                         "Whether to fix the first active observation scale.")
+          .def_readwrite(
+              "uncalibrated_observation_weight",
+              &GlobalPositionerOptions::uncalibrated_observation_weight,
+              "Positive loss multiplier for observations without "
+              "a focal-length prior.")
           .def_readwrite("optimize_positions",
                          &GlobalPositionerOptions::optimize_positions,
                          "Whether to optimize camera positions.")
@@ -60,11 +73,81 @@ void BindGlobalPositioner(py::module& m) {
                          "non-deterministic.")
           .def_readwrite("loss_function_scale",
                          &GlobalPositionerOptions::loss_function_scale,
-                         "Scaling factor for the loss function.")
+                         "Scaling factor for the loss function. "
+                         "Negative values (default -1) use 1.0 (stddev units) "
+                         "when experimental_observation_stddev is set, "
+                         "otherwise 0.1 (radians).")
+          .def_readwrite(
+              "experimental_observation_stddev",
+              &GlobalPositionerOptions::experimental_observation_stddev,
+              "Isotropic observation uncertainty in pixels. None disables "
+              "weighting. When enabled, loss_function_scale applies to "
+              "whitened residuals.")
           .def_readwrite("use_parameter_block_ordering",
                          &GlobalPositionerOptions::use_parameter_block_ordering,
                          "Whether to use custom parameter block ordering.");
   MakeDataclass(PyGlobalPositionerOptions);
+
+  py::classh<GlobalPositioner>(m, "GlobalPositioner")
+      .def("solve", &GlobalPositioner::Solve)
+      .def_property_readonly("problem",
+                             &GlobalPositioner::Problem,
+                             py::return_value_policy::reference_internal)
+      .def_property_readonly("solver_options",
+                             &GlobalPositioner::SolverOptions,
+                             py::return_value_policy::copy)
+      .def(
+          "extend_parameter_block_ordering",
+          [](GlobalPositioner& self,
+             std::vector<std::pair<py::array_t<double, py::array::c_style>,
+                                   int>> parameter_groups) {
+            std::vector<std::pair<double*, int>> groups;
+            groups.reserve(parameter_groups.size());
+            for (auto& [parameter, group] : parameter_groups) {
+              groups.emplace_back(parameter.mutable_data(), group);
+            }
+            self.ExtendParameterBlockOrdering(groups);
+          },
+          "parameter_groups"_a = py::list(),
+          "Extend an existing ordering after adding parameter blocks. "
+          "Optional (registered parameter array, group) pairs override groups.")
+      .def(
+          "frame_center_parameter_block",
+          [](py::object self, frame_t frame_id) -> py::object {
+            double* center =
+                self.cast<GlobalPositioner&>().FrameCenterParameterBlock(
+                    frame_id);
+            if (center == nullptr) {
+              return py::none();
+            }
+            return py::array_t<double>({3}, {sizeof(double)}, center, self);
+          },
+          "frame_id"_a,
+          "Return a writable NumPy array sharing the frame-center parameter "
+          "block in world coordinates, or None if inactive. The array keeps "
+          "the positioner alive.")
+      .def("finalize", &GlobalPositioner::Finalize, "summary"_a);
+
+  m.def(
+      "create_default_global_positioner",
+      [](const GlobalPositionerOptions& options,
+         const PoseGraph& pose_graph,
+         Reconstruction& reconstruction,
+         const py::object& loss_function) {
+        return GlobalPositioner::CreateDefault(
+            options,
+            pose_graph,
+            reconstruction,
+            loss_function.is_none()
+                ? nullptr
+                : loss_function.cast<std::shared_ptr<ceres::LossFunction>>());
+      },
+      "options"_a,
+      "pose_graph"_a,
+      "reconstruction"_a,
+      "loss_function"_a = py::none(),
+      py::keep_alive<0, 3>(),
+      "Prepare global positioning without solving.");
 
   m.def(
       "run_global_positioning",
@@ -117,7 +200,7 @@ void BindGravityRefiner(py::module& m) {
 }
 
 void BindRotationEstimator(py::module& m) {
-  using WeightType = RotationEstimatorOptions::WeightType;
+  using WeightType = L1IrlsRotationAveragerOptions::WeightType;
   auto PyWeightType = py::enum_<WeightType>(m, "RotationWeightType")
                           .value("GEMAN_MCCLURE", WeightType::GEMAN_MCCLURE)
                           .value("HALF_NORM", WeightType::HALF_NORM);
@@ -127,8 +210,51 @@ void BindRotationEstimator(py::module& m) {
       py::enum_<RotationAveragingReweighting>(m, "RotationAveragingReweighting")
           .value("UNIFORM", RotationAveragingReweighting::UNIFORM)
           .value("INLIER_MATCH_COUNT",
-                 RotationAveragingReweighting::INLIER_MATCH_COUNT);
+                 RotationAveragingReweighting::INLIER_MATCH_COUNT)
+          .value("COVARIANCE", RotationAveragingReweighting::COVARIANCE);
   AddStringToEnumConstructor(PyRotationAveragingReweighting);
+
+  auto PyRotationAveragingBackend =
+      py::enum_<RotationAveragingBackend>(m, "RotationAveragingBackend")
+          .value("L1_IRLS", RotationAveragingBackend::L1_IRLS)
+          .value("CERES", RotationAveragingBackend::CERES);
+  AddStringToEnumConstructor(PyRotationAveragingBackend);
+
+  auto PyL1IrlsRotationAveragerOptions =
+      py::classh<L1IrlsRotationAveragerOptions>(m,
+                                                "L1IrlsRotationAveragerOptions")
+          .def(py::init<>())
+          .def_readwrite("max_num_l1_iterations",
+                         &L1IrlsRotationAveragerOptions::max_num_l1_iterations,
+                         "Maximum number of L1 minimization iterations.")
+          .def_readwrite(
+              "l1_step_convergence_threshold",
+              &L1IrlsRotationAveragerOptions::l1_step_convergence_threshold,
+              "Average step size threshold to terminate L1 minimization.")
+          .def_readwrite(
+              "max_num_irls_iterations",
+              &L1IrlsRotationAveragerOptions::max_num_irls_iterations,
+              "Number of IRLS iterations to perform.")
+          .def_readwrite(
+              "irls_step_convergence_threshold",
+              &L1IrlsRotationAveragerOptions::irls_step_convergence_threshold,
+              "Average step size threshold to terminate IRLS.")
+          .def_readwrite(
+              "irls_loss_parameter_sigma",
+              &L1IrlsRotationAveragerOptions::irls_loss_parameter_sigma,
+              "Scale of the Geman-McClure IRLS weight (degrees). Unused by "
+              "HALF_NORM.")
+          .def_readwrite(
+              "ridge_regularization",
+              &L1IrlsRotationAveragerOptions::ridge_regularization,
+              "Tikhonov ridge added to the diagonal of the normal equations "
+              "before each Cholesky factorization in the L1 and IRLS phases. "
+              "Set to a small positive value (e.g., 1e-9) to stabilize poorly "
+              "conditioned systems. Zero disables regularization.")
+          .def_readwrite("weight_type",
+                         &L1IrlsRotationAveragerOptions::weight_type,
+                         "Weight type for IRLS: GEMAN_MCCLURE or HALF_NORM.");
+  MakeDataclass(PyL1IrlsRotationAveragerOptions);
 
   auto PyRotationEstimatorOptions =
       py::classh<RotationEstimatorOptions>(m, "RotationEstimatorOptions")
@@ -137,37 +263,23 @@ void BindRotationEstimator(py::module& m) {
                          &RotationEstimatorOptions::random_seed,
                          "PRNG seed. -1 for non-deterministic, >=0 for "
                          "deterministic.")
-          .def_readwrite("max_num_l1_iterations",
-                         &RotationEstimatorOptions::max_num_l1_iterations,
-                         "Maximum number of L1 minimization iterations.")
-          .def_readwrite(
-              "l1_step_convergence_threshold",
-              &RotationEstimatorOptions::l1_step_convergence_threshold,
-              "Average step size threshold to terminate L1 minimization.")
-          .def_readwrite("max_num_irls_iterations",
-                         &RotationEstimatorOptions::max_num_irls_iterations,
-                         "Number of IRLS iterations to perform.")
-          .def_readwrite(
-              "irls_step_convergence_threshold",
-              &RotationEstimatorOptions::irls_step_convergence_threshold,
-              "Average step size threshold to terminate IRLS.")
+          .def_readwrite("backend",
+                         &RotationEstimatorOptions::backend,
+                         "Solver backend for rotation averaging: L1_IRLS or "
+                         "CERES. CERES falls back to L1_IRLS when use_gravity "
+                         "is set and gravity priors are given.")
+          .def_readwrite("l1_irls",
+                         &RotationEstimatorOptions::l1_irls,
+                         "L1-IRLS-specific rotation averaging options (used "
+                         "when backend == L1_IRLS and when CERES falls back "
+                         "to L1_IRLS for gravity priors).")
+          .def_readwrite("ceres",
+                         &RotationEstimatorOptions::ceres,
+                         "Ceres-specific rotation averaging options (only "
+                         "used when backend == CERES).")
           .def_readwrite("gravity_dir",
                          &RotationEstimatorOptions::gravity_dir,
                          "Gravity direction vector.")
-          .def_readwrite(
-              "irls_loss_parameter_sigma",
-              &RotationEstimatorOptions::irls_loss_parameter_sigma,
-              "Point where Huber-like cost switches from L1 to L2 (degrees).")
-          .def_readwrite(
-              "ridge_regularization",
-              &RotationEstimatorOptions::ridge_regularization,
-              "Tikhonov ridge added to the diagonal of the normal equations "
-              "before each Cholesky factorization in the L1 and IRLS phases. "
-              "Set to a small positive value (e.g., 1e-9) to stabilize poorly "
-              "conditioned systems. Zero disables regularization.")
-          .def_readwrite("weight_type",
-                         &RotationEstimatorOptions::weight_type,
-                         "Weight type for IRLS: GEMAN_MCCLURE or HALF_NORM.")
           .def_readwrite("skip_initialization",
                          &RotationEstimatorOptions::skip_initialization,
                          "Skip maximum spanning tree initialization.")
@@ -195,9 +307,20 @@ void BindRotationEstimator(py::module& m) {
           .def_readwrite("reweighting",
                          &RotationEstimatorOptions::reweighting,
                          "Reweighting scheme for relative-rotation "
-                         "constraints: UNIFORM or "
-                         "INLIER_MATCH_COUNT.");
+                         "constraints: UNIFORM, INLIER_MATCH_COUNT, or "
+                         "COVARIANCE.");
   MakeDataclass(PyRotationEstimatorOptions);
+
+  m.def("maybe_estimate_pose_graph_rotation_covariances",
+        &MaybeEstimatePoseGraphRotationCovariances,
+        "options"_a,
+        "database_cache"_a,
+        "pose_graph"_a,
+        "With COVARIANCE reweighting, estimate the rotation covariances of "
+        "valid pose graph edges that do not have one yet from their two-view "
+        "correspondences, and invalidate edges whose covariance cannot be "
+        "estimated.",
+        py::call_guard<py::gil_scoped_release>());
 
   m.def(
       "run_rotation_averaging",
@@ -215,6 +338,8 @@ void BindRotationEstimator(py::module& m) {
       "reconstruction"_a,
       "pose_priors"_a,
       "High-level rotation averaging solver that handles rig expansion. "
+      "With COVARIANCE reweighting, call "
+      "maybe_estimate_pose_graph_rotation_covariances first. "
       "Returns True if rotation averaging succeeded.");
 }
 

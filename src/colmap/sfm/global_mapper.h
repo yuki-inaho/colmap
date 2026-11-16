@@ -48,6 +48,8 @@ struct GlobalMapperOptions {
       // rely on COLMAP's auto selection.
       options.ceres->auto_select_solver_type = false;
       options.ceres->solver_options.function_tolerance = 1e-5;
+      options.ceres->solver_options.gradient_tolerance = 1e-10;
+      options.ceres->solver_options.parameter_tolerance = 1e-8;
       options.ceres->solver_options.max_num_iterations = 200;
       options.ceres->solver_options.linear_solver_type = ceres::SPARSE_SCHUR;
     }
@@ -68,6 +70,8 @@ struct GlobalMapperOptions {
   int track_required_tracks_per_view = std::numeric_limits<int>::max();
   // Minimum number of views per track.
   int track_min_num_views_per_track = 3;
+  // Maximum number of views per track. Longer tracks are discarded.
+  int track_max_num_views_per_track = 100;
   // Maximum total number of tracks to establish. Tracks are selected in order
   // of decreasing length, so the longest tracks are kept. Use this to bound
   // memory usage on large datasets. By default, there is no limit.
@@ -115,9 +119,13 @@ class GlobalMapper {
   explicit GlobalMapper(std::shared_ptr<const DatabaseCache> database_cache);
 
   // Prepare the mapper for a new reconstruction. This will initialize the
-  // reconstruction and view graph from the database.
+  // reconstruction from the database and the pose graph from the database or,
+  // if pose_graph is given, from its subgraph between the images of the
+  // database cache. The latter lets callers provide precomputed edge data, such
+  // as rotation covariances.
   void BeginReconstruction(
-      const std::shared_ptr<Reconstruction>& reconstruction);
+      const std::shared_ptr<Reconstruction>& reconstruction,
+      const PoseGraph* pose_graph = nullptr);
 
   // Run the global SfM pipeline. The optional `on_progress` callback is invoked
   // after global positioning, after each bundle-adjustment iteration, and after

@@ -26,7 +26,6 @@
 
 #include <array>
 #include <fstream>
-#include <locale>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -551,8 +550,8 @@ class SiftGPUFeatureExtractor : public FeatureExtractor {
 
     sift_gpu_args.push_back("./sift_gpu");
 
-#if defined(COLMAP_CUDA_ENABLED)
-    // Use CUDA version by default if darkness adaptivity is disabled.
+#if defined(COLMAP_CUDA_ENABLED) || defined(COLMAP_HIP_ENABLED)
+    // Use the compute backend by default if darkness adaptivity is disabled.
     if (!options.sift->darkness_adaptivity && gpu_indices[0] < 0) {
       gpu_indices[0] = 0;
     }
@@ -561,7 +560,7 @@ class SiftGPUFeatureExtractor : public FeatureExtractor {
       sift_gpu_args.push_back("-cuda");
       sift_gpu_args.push_back(std::to_string(gpu_indices[0]));
     }
-#endif  // COLMAP_CUDA_ENABLED
+#endif  // COLMAP_CUDA_ENABLED || COLMAP_HIP_ENABLED
 
     // Darkness adaptivity (hidden feature). Significantly improves
     // distribution of features. Only available in GLSL version.
@@ -1057,18 +1056,14 @@ class SiftCPUFeatureMatcher : public FeatureMatcher {
 
     matches->clear();
 
-    if (!options_.sift->cpu_brute_force_matcher &&
-        (prev_image_id1_ == kInvalidImageId ||
-         prev_image_id1_ != image1.image_id)) {
-      index1_ = options_.sift->cpu_descriptor_index_cache->Get(image1.image_id);
-      prev_image_id1_ = image1.image_id;
-    }
-
-    if (!options_.sift->cpu_brute_force_matcher &&
-        (prev_image_id2_ == kInvalidImageId ||
-         prev_image_id2_ != image2.image_id)) {
-      index2_ = options_.sift->cpu_descriptor_index_cache->Get(image2.image_id);
-      prev_image_id2_ = image2.image_id;
+    std::shared_ptr<FeatureDescriptorIndex> index1;
+    std::shared_ptr<FeatureDescriptorIndex> index2;
+    if (!options_.sift->cpu_brute_force_matcher) {
+      auto get_index = [this](const Image& image) {
+        return options_.sift->cpu_descriptor_index_cache->Get(image.image_id);
+      };
+      index1 = index_cache_.GetOrCreate(image1, get_index);
+      index2 = index_cache_.GetOrCreate(image2, get_index);
     }
 
     if (image1.descriptors->data.rows() == 0 ||
@@ -1095,13 +1090,13 @@ class SiftCPUFeatureMatcher : public FeatureMatcher {
     Eigen::RowMajorMatrixXi indices_2to1;
     Eigen::RowMajorMatrixXf l2_dists_2to1;
 
-    THROW_CHECK_NOTNULL(index2_)->Search(
+    THROW_CHECK_NOTNULL(index2)->Search(
         /*num_neighbors=*/2,
         image1.descriptors->ToFloat(),
         indices_1to2,
         l2_dists_1to2);
     if (options_.sift->cross_check) {
-      THROW_CHECK_NOTNULL(index1_)->Search(
+      THROW_CHECK_NOTNULL(index1)->Search(
           /*num_neighbors=*/2,
           image2.descriptors->ToFloat(),
           indices_2to1,
@@ -1126,20 +1121,6 @@ class SiftCPUFeatureMatcher : public FeatureMatcher {
     ThrowCheckFeatureTypesMatch(image1, image2, /*check_keypoints=*/true);
 
     two_view_geometry->inlier_matches.clear();
-
-    if (!options_.sift->cpu_brute_force_matcher &&
-        (prev_image_id1_ == kInvalidImageId ||
-         prev_image_id1_ != image1.image_id)) {
-      index1_ = options_.sift->cpu_descriptor_index_cache->Get(image1.image_id);
-      prev_image_id1_ = image1.image_id;
-    }
-
-    if (!options_.sift->cpu_brute_force_matcher &&
-        (prev_image_id2_ == kInvalidImageId ||
-         prev_image_id2_ != image2.image_id)) {
-      index2_ = options_.sift->cpu_descriptor_index_cache->Get(image2.image_id);
-      prev_image_id2_ = image2.image_id;
-    }
 
     const bool use_essential_matrix =
         UseEssentialMatrixForGuidedMatching(*two_view_geometry);
@@ -1274,10 +1255,8 @@ class SiftCPUFeatureMatcher : public FeatureMatcher {
 
  private:
   const FeatureMatchingOptions options_;
-  image_t prev_image_id1_ = kInvalidImageId;
-  image_t prev_image_id2_ = kInvalidImageId;
-  std::shared_ptr<FeatureDescriptorIndex> index1_;
-  std::shared_ptr<FeatureDescriptorIndex> index2_;
+  // Cache descriptor indexes per image to avoid redundant index lookups.
+  ImageFeatureCache<std::shared_ptr<FeatureDescriptorIndex>> index_cache_;
 };
 
 #if defined(COLMAP_GPU_ENABLED)
@@ -1311,10 +1290,10 @@ std::vector<float> PackCamRaysWithJac(const Camera& camera,
 }
 
 // Mutexes for OpenGL version to protect static variables in SiftGPU.
-// CUDA version doesn't need this as it has its own thread safety.
+// The compute backend doesn't need this as it has its own thread safety.
 static std::map<int, std::unique_ptr<std::mutex>> sift_opengl_mutexes_;
 
-enum class SiftBackend { CUDA, GLSL };
+enum class SiftBackend { COMPUTE, GLSL };
 
 class SiftGPUFeatureMatcher : public FeatureMatcher {
  public:
@@ -1344,18 +1323,18 @@ class SiftGPUFeatureMatcher : public FeatureMatcher {
 
     matcher->sift_match_gpu_ = SiftMatchGPU(options.max_num_matches);
 
-#if defined(COLMAP_CUDA_ENABLED)
+#if defined(COLMAP_CUDA_ENABLED) || defined(COLMAP_HIP_ENABLED)
     if (gpu_indices[0] >= 0) {
       matcher->sift_match_gpu_.SetLanguage(
           SiftMatchGPU::SIFTMATCH_CUDA_DEVICE0 + gpu_indices[0]);
     } else {
       matcher->sift_match_gpu_.SetLanguage(SiftMatchGPU::SIFTMATCH_CUDA);
     }
-    matcher->backend_ = SiftBackend::CUDA;
-#else   // COLMAP_CUDA_ENABLED
+    matcher->backend_ = SiftBackend::COMPUTE;
+#else
     matcher->sift_match_gpu_.SetLanguage(SiftMatchGPU::SIFTMATCH_GLSL);
     matcher->backend_ = SiftBackend::GLSL;
-#endif  // COLMAP_CUDA_ENABLED
+#endif  // COLMAP_CUDA_ENABLED || COLMAP_HIP_ENABLED
 
     if (matcher->sift_match_gpu_.VerifyContextGL() == 0) {
       return nullptr;
@@ -1370,15 +1349,15 @@ class SiftGPUFeatureMatcher : public FeatureMatcher {
       return nullptr;
     }
 
-#if !defined(COLMAP_CUDA_ENABLED)
+#if !defined(COLMAP_CUDA_ENABLED) && !defined(COLMAP_HIP_ENABLED)
     if (matcher->sift_match_gpu_.GetMaxSift() < options.max_num_matches) {
       LOG(WARNING) << StringPrintf(
           "OpenGL version of SiftGPU only supports a "
-          "maximum of %d matches - consider changing to CUDA-based "
+          "maximum of %d matches - consider changing to CUDA- or HIP-based "
           "feature matching to avoid this limitation.",
           matcher->sift_match_gpu_.GetMaxSift());
     }
-#endif  // COLMAP_CUDA_ENABLED
+#endif  // !COLMAP_CUDA_ENABLED && !COLMAP_HIP_ENABLED
 
     matcher->sift_match_gpu_.gpu_index = gpu_indices[0];
 
@@ -1674,13 +1653,13 @@ void LoadSiftFeaturesFromTextFile(const std::filesystem::path& path,
 
   std::ifstream file(path);
   THROW_CHECK_FILE_OPEN(file, path);
-  file.imbue(std::locale::classic());
+  SetFullPrecTextStream(file);
 
   std::string line;
 
   std::getline(file, line);
   std::istringstream header_line_stream(line);
-  header_line_stream.imbue(std::locale::classic());
+  SetFullPrecTextStream(header_line_stream);
 
   point2D_t num_features;
   size_t dim;
@@ -1696,7 +1675,7 @@ void LoadSiftFeaturesFromTextFile(const std::filesystem::path& path,
   for (size_t i = 0; i < num_features; ++i) {
     std::getline(file, line);
     std::istringstream feature_line_stream(line);
-    feature_line_stream.imbue(std::locale::classic());
+    SetFullPrecTextStream(feature_line_stream);
 
     float x, y, scale, orientation;
     THROW_CHECK(feature_line_stream >> x >> y >> scale >> orientation);

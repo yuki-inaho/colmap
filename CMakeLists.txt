@@ -195,9 +195,11 @@ endif()
 
 if(IPO_ENABLED AND NOT IS_DEBUG AND NOT IS_GNU)
     message(STATUS "Enabling interprocedural optimization")
+    set(COLMAP_INTERPROCEDURAL_OPTIMIZATION TRUE)
     set_property(DIRECTORY PROPERTY INTERPROCEDURAL_OPTIMIZATION 1)
 else()
     message(STATUS "Disabling interprocedural optimization")
+    set(COLMAP_INTERPROCEDURAL_OPTIMIZATION FALSE)
 endif()
 
 if(ASAN_ENABLED)
@@ -297,6 +299,7 @@ COLMAP_ADD_SOURCE_DIR(src/colmap/exe EXE_SRCS *.h *.cc)
 COLMAP_ADD_SOURCE_DIR(src/colmap/feature FEATURE_SRCS *.h *.cc)
 COLMAP_ADD_SOURCE_DIR(src/colmap/geometry GEOMETRY_SRCS *.h *.cc)
 COLMAP_ADD_SOURCE_DIR(src/colmap/image IMAGE_SRCS *.h *.cc)
+COLMAP_ADD_SOURCE_DIR(src/colmap/inertial INERTIAL_SRCS *.h *.cc)
 COLMAP_ADD_SOURCE_DIR(src/colmap/math MATH_SRCS *.h *.cc)
 if(MVS_ENABLED)
     COLMAP_ADD_SOURCE_DIR(src/colmap/mvs MVS_SRCS *.h *.cc *.cu)
@@ -331,6 +334,7 @@ if(ALL_SOURCE_TARGET)
         ${FEATURE_SRCS}
         ${GEOMETRY_SRCS}
         ${IMAGE_SRCS}
+        ${INERTIAL_SRCS}
         ${MATH_SRCS}
         ${OPTIM_SRCS}
         ${RETRIEVAL_SRCS}
@@ -402,6 +406,7 @@ endif()
 
 set(COLMAP_EXPORT_LIBS
     # Internal.
+    colmap_calibration
     colmap_controllers
     colmap_estimators
     colmap_estimators_cost_functions
@@ -411,6 +416,7 @@ set(COLMAP_EXPORT_LIBS
     colmap_feature
     colmap_geometry
     colmap_image
+    colmap_inertial
     colmap_math
     colmap_optim
     colmap_retrieval
@@ -425,6 +431,9 @@ set(COLMAP_EXPORT_LIBS
 )
 if(MVS_ENABLED)
     list(APPEND COLMAP_EXPORT_LIBS colmap_mvs)
+endif()
+if(ONNX_ENABLED)
+    list(APPEND COLMAP_EXPORT_LIBS colmap_onnx_util)
 endif()
 if(LSD_ENABLED)
     list(APPEND COLMAP_EXPORT_LIBS

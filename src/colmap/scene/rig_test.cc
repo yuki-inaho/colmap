@@ -2,12 +2,14 @@
 
 #include "colmap/scene/rig.h"
 
+#include "colmap/geometry/rigid3_matchers.h"
 #include "colmap/math/random_eigen.h"
 #include "colmap/scene/database_sqlite.h"
 #include "colmap/scene/synthetic.h"
 #include "colmap/util/testing.h"
 
 #include <fstream>
+#include <locale>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -21,6 +23,13 @@ std::filesystem::path WriteTestConfig(const std::string& config) {
   file << config << '\n';
   return file_path;
 }
+
+// Custom numpunct facet that uses comma as decimal separator, for testing
+// locale independence without requiring a specific system locale.
+struct CommaDecimalFacet : std::numpunct<char> {
+ protected:
+  char do_decimal_point() const override { return ','; }
+};
 
 TEST(ReadRigConfig, Empty) {
   EXPECT_THAT(ReadRigConfig(WriteTestConfig("[]")), testing::IsEmpty());
@@ -118,7 +127,8 @@ TEST(ReadRigConfig, Nominal) {
   ASSERT_FALSE(configs[0].cameras[0].cam_from_rig.has_value());
   ASSERT_TRUE(configs[0].cameras[0].camera.has_value());
   EXPECT_EQ(configs[0].cameras[0].camera->model_id, CameraModelId::kOpenCV);
-  EXPECT_TRUE(configs[0].cameras[0].camera->has_prior_focal_length);
+  EXPECT_TRUE(configs[0].cameras[0].camera->HasPriorFocalLength());
+  EXPECT_EQ(configs[0].cameras[0].camera->source, CameraSource::USER);
   EXPECT_THAT(configs[0].cameras[0].camera->params,
               testing::ElementsAre(640, 480, 320, 240, 0.1, 0.2, 0.3, 0.4));
 
@@ -142,26 +152,72 @@ TEST(ReadRigConfig, Nominal) {
   ASSERT_FALSE(configs[1].cameras[1].camera.has_value());
 }
 
+TEST(ReadRigConfig, LocaleIndependence) {
+  // Install a global locale that uses comma as decimal separator.
+  const std::locale original_locale = std::locale::global(
+      std::locale(std::locale::classic(), new CommaDecimalFacet));
+
+  const std::vector<RigConfig> configs = ReadRigConfig(WriteTestConfig(R"(
+[
+  {
+    "cameras": [
+      {
+          "image_prefix": "rig1/camera1/",
+          "ref_sensor": true,
+          "camera_model_name": "OPENCV",
+          "camera_params": [640.5, 480.25, 320.125, 240.0625, 0.1, 0.2, 0.3, 0.4]
+      },
+      {
+          "image_prefix": "rig1/camera2/",
+          "cam_from_rig_rotation": [0.5, 0.5, 0.5, 0.5],
+          "cam_from_rig_translation": [1.5, 2.25, 3.125]
+      }
+    ]
+  }
+]
+)"));
+  ASSERT_EQ(configs.size(), 1);
+  ASSERT_EQ(configs[0].cameras.size(), 2);
+
+  ASSERT_TRUE(configs[0].cameras[0].camera.has_value());
+  EXPECT_THAT(configs[0].cameras[0].camera->params,
+              testing::ElementsAre(
+                  640.5, 480.25, 320.125, 240.0625, 0.1, 0.2, 0.3, 0.4));
+
+  ASSERT_TRUE(configs[0].cameras[1].cam_from_rig.has_value());
+  EXPECT_EQ(configs[0].cameras[1].cam_from_rig->rotation().coeffs(),
+            Eigen::Vector4d(0.5, 0.5, 0.5, 0.5));
+  EXPECT_EQ(configs[0].cameras[1].cam_from_rig->translation(),
+            Eigen::Vector3d(1.5, 2.25, 3.125));
+
+  // Restore original locale.
+  std::locale::global(original_locale);
+}
+
 void CreateTestData(int num_frames,
                     int num_cameras_per_rig,
                     Database* database,
                     Reconstruction* reconstruction) {
-  // Create a synthetic dataset with a single rig and trivial frames.
+  // Create a synthetic dataset with one trivial rig per camera, so that the
+  // images of each camera in the rig config have their own camera.
   SyntheticDatasetOptions options;
-  options.num_rigs = 1;
+  options.num_rigs = num_cameras_per_rig;
   options.num_cameras_per_rig = 1;
-  options.num_frames_per_rig = num_frames * num_cameras_per_rig;
+  options.num_frames_per_rig = num_frames;
   SynthesizeDataset(options, reconstruction, database);
 
   // Manually overwrite the image names to match the expected rig config.
-  int image_idx = 0;
-  int frame_idx = 0;
+  std::map<camera_t, int> camera_id_to_idx;
+  std::map<camera_t, int> camera_id_to_num_images;
   for (auto& image : database->ReadAllImages()) {
-    if (image_idx++ % num_cameras_per_rig == 0) {
-      ++frame_idx;
-    }
-    image.SetName("camera" + std::to_string(image_idx % num_cameras_per_rig) +
-                  "_frame" + std::to_string(frame_idx));
+    const int camera_idx =
+        camera_id_to_idx
+            .emplace(image.CameraId(),
+                     static_cast<int>(camera_id_to_idx.size()))
+            .first->second;
+    const int frame_idx = ++camera_id_to_num_images[image.CameraId()];
+    image.SetName("camera" + std::to_string(camera_idx) + "_frame" +
+                  std::to_string(frame_idx));
     reconstruction->Image(image.ImageId()).SetName(image.Name());
     database->UpdateImage(image);
   }
@@ -267,11 +323,12 @@ TEST(ApplyRigConfig, WithPartialReconstruction) {
       database.get(),
       &reconstruction);
 
+  // Trivial frames 1-5 hold the camera0_ images and 6-10 the camera1_ images.
   reconstruction.DeRegisterFrame(1);
-  reconstruction.DeRegisterFrame(2);
+  reconstruction.DeRegisterFrame(6);
   // De-register only one image in the frame.
   // The other image allows us to register the frame.
-  reconstruction.DeRegisterFrame(3);
+  reconstruction.DeRegisterFrame(7);
 
   std::vector<RigConfig> configs;
   auto& config = configs.emplace_back();
@@ -322,6 +379,41 @@ TEST(ApplyRigConfig, WithoutReconstruction) {
   EXPECT_EQ(database->ReadCamera(sensor_id2.id), camera2.camera);
 }
 
+TEST(ApplyRigConfig, RejectsCameraSharedBetweenSensors) {
+  auto database = Database::Open(kInMemorySqliteDatabasePath);
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions options;
+  options.num_rigs = 1;
+  options.num_cameras_per_rig = 1;
+  options.num_frames_per_rig = 4;
+  SynthesizeDataset(options, &reconstruction, database.get());
+
+  // Split the images of the single camera between two rig sensors, as happens
+  // when images of identical cameras were extracted into a shared camera.
+  int image_idx = 0;
+  for (auto& image : database->ReadAllImages()) {
+    image.SetName("camera" + std::to_string(image_idx % 2) + "_frame" +
+                  std::to_string(image_idx / 2));
+    database->UpdateImage(image);
+    ++image_idx;
+  }
+
+  std::vector<RigConfig> configs;
+  auto& config = configs.emplace_back();
+  auto& camera1 = config.cameras.emplace_back();
+  camera1.image_prefix = "camera0_";
+  camera1.ref_sensor = true;
+  auto& camera2 = config.cameras.emplace_back();
+  camera2.image_prefix = "camera1_";
+
+  try {
+    ApplyRigConfig(configs, *database);
+    ADD_FAILURE() << "Expected ApplyRigConfig to throw";
+  } catch (const std::exception& e) {
+    EXPECT_THAT(e.what(), testing::HasSubstr("share camera"));
+  }
+}
+
 TEST(ApplyRigConfig, WithUnconfiguredSingleAndConfiguredMultiCameraRigs) {
   auto database = Database::Open(kInMemorySqliteDatabasePath);
   Reconstruction reconstruction;
@@ -362,6 +454,50 @@ TEST(ApplyRigConfig, WithUnconfiguredSingleAndConfiguredMultiCameraRigs) {
     num_non_trivial_frames += rig.NumDataIds() > 1;
   }
   EXPECT_EQ(num_non_trivial_frames, 5);
+}
+
+TEST(ApplyRigConfig, PrefersRefSensorForFramePoses) {
+  auto database = Database::Open(kInMemorySqliteDatabasePath);
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions options;
+  options.num_rigs = 2;
+  options.num_cameras_per_rig = 1;
+  options.num_frames_per_rig = 5;
+  SynthesizeDataset(options, &reconstruction, database.get());
+
+  // Record reference-sensor image poses before conversion. The two images
+  // grouped into each new frame have independent (inconsistent) poses, since
+  // they come from different trivial rigs.
+  NodeHashMap<std::string, Rigid3d> ref_name_to_cam_from_world;
+  for (const auto& [_, image] : reconstruction.Images()) {
+    if (image.CameraId() == 1) {
+      ref_name_to_cam_from_world.emplace(image.Name(), image.CamFromWorld());
+    }
+  }
+  EXPECT_EQ(ref_name_to_cam_from_world.size(), 5);
+
+  std::vector<RigConfig> configs;
+  auto& config = configs.emplace_back();
+  auto& camera1 = config.cameras.emplace_back();
+  camera1.image_prefix = "camera000001_";
+  camera1.ref_sensor = true;
+  auto& camera2 = config.cameras.emplace_back();
+  camera2.image_prefix = "camera000002_";
+
+  ApplyRigConfig(configs, *database, &reconstruction);
+  EXPECT_EQ(reconstruction.NumRigs(), 1);
+  EXPECT_EQ(reconstruction.NumFrames(), 5);
+
+  // Converted frame poses must match the reference-sensor images, not an
+  // arbitrary (e.g. last-visited) image in the frame.
+  for (const auto& [_, image] : reconstruction.Images()) {
+    if (image.CameraId() != 1) {
+      continue;
+    }
+    const Rigid3d& expected = ref_name_to_cam_from_world.at(image.Name());
+    EXPECT_THAT(image.CamFromWorld(),
+                Rigid3dNear(expected, /*rtol=*/1e-6, /*ttol=*/1e-6));
+  }
 }
 
 }  // namespace

@@ -48,8 +48,7 @@ bool IncrementalTriangulator::Options::Check() const {
   CHECK_OPTION_GT(complete_max_reproj_error, 0);
   CHECK_OPTION_GE(complete_max_transitivity, 0);
   CHECK_OPTION_GT(re_max_angle_error, 0);
-  CHECK_OPTION_GE(re_min_ratio, 0);
-  CHECK_OPTION_LE(re_min_ratio, 1);
+  CHECK_OPTION_IN(re_min_ratio, 0, 1);
   CHECK_OPTION_GE(re_max_trials, 0);
   CHECK_OPTION_GT(min_angle, 0);
   CHECK_OPTION_GE(random_seed, -1);
@@ -523,6 +522,8 @@ size_t IncrementalTriangulator::Continue(
 
   double best_angle_error = std::numeric_limits<double>::max();
   size_t best_idx = std::numeric_limits<size_t>::max();
+  std::optional<Rigid3d> ref_cam_from_world;
+  std::optional<Eigen::Vector3d> ref_cam_ray;
 
   for (size_t idx = 0; idx < corrs_data.size(); ++idx) {
     const CorrData& corr_data = corrs_data[idx];
@@ -533,11 +534,18 @@ size_t IncrementalTriangulator::Continue(
     const Point3D& point3D =
         reconstruction_.Point3D(corr_data.point2D->point3D_id);
 
+    // Cache the reference pose and ray, shared by all candidates. Computed
+    // lazily to skip the unprojection when no candidate is triangulated.
+    if (!ref_cam_from_world) {
+      ref_cam_from_world = ref_corr_data.image->CamFromWorld();
+      ref_cam_ray =
+          ref_corr_data.camera->CamRayFromImg(ref_corr_data.point2D->xy);
+    }
+
     const double angle_error =
-        CalculateAngularReprojectionError(ref_corr_data.point2D->xy,
-                                          point3D.xyz,
-                                          ref_corr_data.image->CamFromWorld(),
-                                          *ref_corr_data.camera);
+        ref_cam_ray ? CalculateAngularReprojectionError(
+                          *ref_cam_ray, point3D.xyz, *ref_cam_from_world)
+                    : EIGEN_PI;
     if (angle_error < best_angle_error) {
       best_angle_error = angle_error;
       best_idx = idx;

@@ -4,6 +4,7 @@
 
 #include "colmap/estimators/bundle_adjustment_caspar.h"
 #include "colmap/estimators/rotation_averaging.h"
+#include "colmap/estimators/rotation_averaging_ceres.h"
 #include "colmap/math/union_find.h"
 #include "colmap/scene/projection.h"
 #include "colmap/sfm/incremental_mapper.h"
@@ -42,11 +43,34 @@ bool RunBundleAdjustment(const BundleAdjustmentOptions& options,
   return ba->Solve()->IsSolutionUsable();
 }
 
+BundleAdjustmentOptions RefinementBundleAdjustmentOptions(
+    const BundleAdjustmentOptions& ba_options) {
+  BundleAdjustmentOptions custom_ba_options = ba_options;
+  custom_ba_options.refine_focal_length = false;
+  custom_ba_options.refine_principal_point = false;
+  custom_ba_options.refine_extra_params = false;
+  custom_ba_options.refine_sensor_from_rig = false;
+  custom_ba_options.refine_rig_from_world = false;
+  custom_ba_options.print_summary = false;
+  custom_ba_options.min_track_length = 0;
+  if (custom_ba_options.ceres) {
+    custom_ba_options.ceres->loss_function_type =
+        CeresLossFunctionType::TRIVIAL;
+    custom_ba_options.ceres->solver_options.function_tolerance = 0.0;
+    custom_ba_options.ceres->solver_options.gradient_tolerance = 1.0;
+    custom_ba_options.ceres->solver_options.parameter_tolerance = 0.0;
+    custom_ba_options.ceres->solver_options.max_num_iterations = 50;
+    custom_ba_options.ceres->solver_options.max_linear_solver_iterations = 100;
+  }
+  return custom_ba_options;
+}
+
 }  // namespace
 
 RotationEstimatorOptions GlobalMapperOptions::RotationAveraging() const {
   RotationEstimatorOptions opts = rotation_averaging;
   opts.refine_sensor_from_rig = refine_sensor_from_rig;
+  opts.ceres->solver_options.num_threads = num_threads;
   if (random_seed >= 0) {
     opts.random_seed = random_seed;
   }
@@ -89,12 +113,22 @@ GlobalMapper::GlobalMapper(std::shared_ptr<const DatabaseCache> database_cache)
     : database_cache_(std::move(THROW_CHECK_NOTNULL(database_cache))) {}
 
 void GlobalMapper::BeginReconstruction(
-    const std::shared_ptr<class Reconstruction>& reconstruction) {
+    const std::shared_ptr<class Reconstruction>& reconstruction,
+    const PoseGraph* pose_graph) {
   THROW_CHECK_NOTNULL(reconstruction);
   reconstruction_ = reconstruction;
   reconstruction_->Load(*database_cache_);
-  pose_graph_ = std::make_shared<class PoseGraph>();
-  pose_graph_->Load(*database_cache_->CorrespondenceGraph());
+  if (pose_graph != nullptr) {
+    FlatHashSet<image_t> image_ids;
+    image_ids.reserve(database_cache_->NumImages());
+    for (const auto& [image_id, _] : database_cache_->Images()) {
+      image_ids.insert(image_id);
+    }
+    pose_graph_ = std::make_shared<PoseGraph>(pose_graph->Subgraph(image_ids));
+  } else {
+    pose_graph_ = std::make_shared<PoseGraph>();
+    pose_graph_->Load(*database_cache_->CorrespondenceGraph());
+  }
 }
 
 std::shared_ptr<Reconstruction> GlobalMapper::Reconstruction() const {
@@ -112,6 +146,9 @@ bool GlobalMapper::RotationAveraging(const RotationEstimatorOptions& options) {
 
   // Read pose priors from the database cache.
   const std::vector<PosePrior>& pose_priors = database_cache_->PosePriors();
+
+  MaybeEstimatePoseGraphRotationCovariances(
+      options, *database_cache_, *pose_graph_);
 
   // First pass: solve rotation averaging on all frames, then filter outlier
   // pairs by rotation error and de-register frames outside the largest
@@ -226,8 +263,12 @@ void GlobalMapper::EstablishTracks(const GlobalMapperOptions& options) {
     if (!is_consistent) continue;
 
     const size_t num_images = image_id_set.size();
-    if (num_images < static_cast<size_t>(options.track_min_num_views_per_track))
+    if (num_images <
+            static_cast<size_t>(options.track_min_num_views_per_track) ||
+        num_images >
+            static_cast<size_t>(options.track_max_num_views_per_track)) {
       continue;
+    }
 
     const point3D_t point3D_id = next_point3D_id++;
     track_lengths.emplace_back(point3D.track.Length(), point3D_id);
@@ -307,7 +348,7 @@ bool GlobalMapper::GlobalPositioning(const GlobalPositionerOptions& options,
     for (const auto& track_el : point3D.track.Elements()) {
       const auto& image = reconstruction_->Image(track_el.image_id);
       const auto& camera = *image.CameraPtr();
-      if (!camera.has_prior_focal_length) {
+      if (!camera.HasPriorFocalLength()) {
         continue;
       }
       const auto& point2D = image.Point2D(track_el.point2D_idx);
@@ -453,30 +494,30 @@ bool GlobalMapper::IterativeRetriangulateAndRefine(
     mapper.TriangulateImage(options, image_id);
   }
 
-  // Set up bundle adjustment options for colmap's incremental mapper.
-  BundleAdjustmentOptions custom_ba_options = ba_options;
-  custom_ba_options.print_summary = false;
-  if (custom_ba_options.ceres && ba_options.ceres) {
-    custom_ba_options.ceres->solver_options.num_threads =
-        ba_options.ceres->solver_options.num_threads;
-    custom_ba_options.ceres->solver_options.max_num_iterations = 50;
-    custom_ba_options.ceres->solver_options.max_linear_solver_iterations = 100;
-  }
-
   // Iterative global refinement.
   IncrementalMapper::Options mapper_options;
   mapper_options.random_seed = options.random_seed;
-  mapper.IterativeGlobalRefinement(/*max_num_refinements=*/5,
-                                   /*max_refinement_change=*/0.0005,
-                                   mapper_options,
-                                   custom_ba_options,
-                                   options,
-                                   /*normalize_reconstruction=*/true);
+  mapper.IterativeGlobalRefinement(
+      /*max_num_refinements=*/5,
+      /*max_refinement_change=*/0.0005,
+      mapper_options,
+      RefinementBundleAdjustmentOptions(ba_options),
+      options,
+      /*normalize_reconstruction=*/false);
 
   mapper.EndReconstruction(/*discard=*/false);
 
   // Final filtering and bundle adjustment.
   ObservationManager obs_manager(*reconstruction_);
+  obs_manager.FilterPoints3DWithLargeReprojectionError(
+      max_normalized_reproj_error,
+      reconstruction_->Point3DIds(),
+      ReprojectionErrorType::NORMALIZED);
+
+  if (!RunBundleAdjustment(ba_options, *reconstruction_)) {
+    return false;
+  }
+
   obs_manager.FilterPoints3DWithLargeReprojectionError(
       max_normalized_reproj_error,
       reconstruction_->Point3DIds(),

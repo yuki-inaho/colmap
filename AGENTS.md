@@ -163,7 +163,7 @@ pytest                             # All Python tests (config in pyproject.toml)
 ### Index and Identifier Types (util/types.h)
 
 - Generic indexes: int, size_t
-- Special identifiers: camera_t, image_t, image_pair_t, frame_t, rig_t, point2D_t, point3D_t, sensor_t, data_t, pose_prior_t
+- Special identifiers: camera_t, imu_t, image_t, image_pair_t, frame_t, rig_t, point2D_t, point3D_t, sensor_t, data_t, pose_prior_t, timestamp_t
 
 ### Hash containers (util/hash_containers.h)
 

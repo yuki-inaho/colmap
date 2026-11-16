@@ -24,10 +24,6 @@ constexpr double kChiSquare95ThreeDof = 7.814727903251179;
 template <typename T>
 int SignOfNumber(T val);
 
-// Clamp the given value to a low and maximum value.
-template <typename T>
-inline T Clamp(const T& value, const T& low, const T& high);
-
 // Convert angle in degree to radians.
 inline float DegToRad(float deg);
 inline double DegToRad(double deg);
@@ -153,11 +149,6 @@ int SignOfNumber(const T val) {
   return val >= 0 ? 1 : -1;
 }
 
-template <typename T>
-T Clamp(const T& value, const T& low, const T& high) {
-  return std::max(low, std::min(value, high));
-}
-
 float DegToRad(const float deg) {
   return deg * 0.0174532925199432954743716805978692718781530857086181640625f;
 }
@@ -272,9 +263,45 @@ T ScaleSigmoid(T x, const T alpha, const T x0) {
 
 template <typename T1, typename T2>
 T2 TruncateCast(const T1 value) {
-  return static_cast<T2>(std::min(
-      static_cast<T1>(std::numeric_limits<T2>::max()),
-      std::max(static_cast<T1>(std::numeric_limits<T2>::min()), value)));
+  using InputLimits = std::numeric_limits<T1>;
+  using OutputLimits = std::numeric_limits<T2>;
+  if constexpr (InputLimits::is_integer && OutputLimits::is_integer) {
+    if constexpr (InputLimits::is_signed && !OutputLimits::is_signed) {
+      if (value < 0) {
+        return OutputLimits::lowest();
+      }
+    }
+    if constexpr (InputLimits::digits > OutputLimits::digits) {
+      if (value > static_cast<T1>(OutputLimits::max())) {
+        return OutputLimits::max();
+      }
+      if constexpr (InputLimits::is_signed && OutputLimits::is_signed) {
+        if (value < static_cast<T1>(OutputLimits::lowest())) {
+          return OutputLimits::lowest();
+        }
+      }
+    }
+  } else if constexpr (!InputLimits::is_integer &&
+                       OutputLimits::digits <= InputLimits::digits &&
+                       (OutputLimits::is_integer ||
+                        OutputLimits::max_exponent <=
+                            InputLimits::max_exponent)) {
+    // The output bounds are exactly representable in the floating input type.
+    // Clamping before the cast also guarantees that the cast never overflows,
+    // even in unreachable code after constant folding (MSVC warning C4756).
+    return static_cast<T2>(std::clamp(value,
+                                      static_cast<T1>(OutputLimits::lowest()),
+                                      static_cast<T1>(OutputLimits::max())));
+  } else {
+    const long double input = static_cast<long double>(value);
+    if (input <= static_cast<long double>(OutputLimits::lowest())) {
+      return OutputLimits::lowest();
+    }
+    if (input >= static_cast<long double>(OutputLimits::max())) {
+      return OutputLimits::max();
+    }
+  }
+  return static_cast<T2>(value);
 }
 
 }  // namespace colmap

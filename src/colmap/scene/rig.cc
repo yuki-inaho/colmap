@@ -4,6 +4,7 @@
 
 #include "colmap/geometry/pose.h"
 #include "colmap/util/hash_containers.h"
+#include "colmap/util/string.h"
 
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -199,10 +200,15 @@ void UpdateRigsAndFramesFromDatabase(const Database& database,
     reconstruction_frame.SetRigId(database_frame.RigId());
     reconstruction_frame.AddDataId(reconstruction_image.DataId());
     if (reconstruction_image.HasPose()) {
+      // Images grouped into one rig frame may have independently estimated,
+      // slightly inconsistent poses. The reference sensor directly defines
+      // the shared rig pose, so prefer it over poses derived from other sensors
+      // using the averaged sensor_from_rig calibration. If the reference image
+      // has no pose, keep the first available non-reference pose as a fallback.
       if (database_rig.IsRefSensor(database_sensor_id)) {
         reconstruction_frame.SetRigFromWorld(
             reconstruction_image.CamFromWorld());
-      } else {
+      } else if (!reconstruction_frame.HasPose()) {
         reconstruction_frame.SetRigFromWorld(
             Inverse(database_rig.SensorFromRig(database_sensor_id)) *
             reconstruction_image.CamFromWorld());
@@ -228,7 +234,7 @@ void UpdateRigsAndFramesFromDatabase(const Database& database,
 void CopyCameraIntrinsics(const Camera& src, Camera& dst) {
   dst.model_id = src.model_id;
   dst.params = src.params;
-  dst.has_prior_focal_length = src.has_prior_focal_length;
+  dst.source = src.source;
 }
 
 }  // namespace
@@ -258,7 +264,10 @@ std::vector<RigConfig> ReadRigConfig(
         int index = 0;
         Eigen::Vector4d cam_from_rig_wxyz;
         for (const auto& node : cam_from_rig_rotation_node.get()) {
-          cam_from_rig_wxyz[index++] = node.second.get_value<double>();
+          // Note: get_value<double>() is locale-dependent, so parse the raw
+          // token with the locale-independent StringToDouble instead.
+          cam_from_rig_wxyz[index++] =
+              StringToDouble(node.second.get_value<std::string>());
         }
         cam_from_rig.rotation() = Eigen::Quaterniond(cam_from_rig_wxyz(0),
                                                      cam_from_rig_wxyz(1),
@@ -268,7 +277,8 @@ std::vector<RigConfig> ReadRigConfig(
         THROW_CHECK(cam_from_rig_translation_node);
         index = 0;
         for (const auto& node : cam_from_rig_translation_node.get()) {
-          cam_from_rig.translation()(index++) = node.second.get_value<double>();
+          cam_from_rig.translation()(index++) =
+              StringToDouble(node.second.get_value<std::string>());
         }
         config_camera.cam_from_rig = cam_from_rig;
       }
@@ -292,10 +302,10 @@ std::vector<RigConfig> ReadRigConfig(
         config_camera.camera = std::make_optional<Camera>();
         config_camera.camera->model_id = CameraModelNameToId(
             camera.second.get<std::string>("camera_model_name"));
-        config_camera.camera->has_prior_focal_length = true;
+        config_camera.camera->source = CameraSource::USER;
         for (const auto& node : camera_params_node.get()) {
           config_camera.camera->params.push_back(
-              node.second.get_value<double>());
+              StringToDouble(node.second.get_value<std::string>()));
         }
       }
     }
@@ -355,16 +365,24 @@ void ApplyRigConfig(const std::vector<RigConfig>& configs,
       }
     }
 
-    std::set<camera_t> unique_camera_ids;
+    // Sensors are identified by their camera, so images of different sensors
+    // must not share a camera. Otherwise, their images would all be assigned
+    // to the same sensor in the frames below.
+    std::map<camera_t, size_t> camera_id_to_idx;
     for (size_t camera_idx = 0; camera_idx < num_cameras; ++camera_idx) {
       const auto& config_camera = config.cameras[camera_idx];
-      std::optional<camera_t>& camera_id = camera_ids[camera_idx];
+      const std::optional<camera_t>& camera_id = camera_ids[camera_idx];
       THROW_CHECK(camera_id.has_value())
           << "At least one image must exist for each camera in the rig";
-      if (!unique_camera_ids.insert(*camera_id).second) {
-        // Clone the camera, if multiple cameras in the rig share a camera.
-        *camera_id = database.WriteCamera(database.ReadCamera(*camera_id));
-      }
+      const auto [it, inserted] =
+          camera_id_to_idx.emplace(*camera_id, camera_idx);
+      THROW_CHECK(inserted)
+          << "Images with prefixes " << config.cameras[it->second].image_prefix
+          << " and " << config_camera.image_prefix << " share camera "
+          << *camera_id
+          << ". Consider setting --ImageReader.single_camera_per_folder "
+             "during feature extraction or manually assign distinct "
+             "camera_id's.";
       if (config_camera.ref_sensor) {
         rig.AddRefSensor(sensor_t(SensorType::CAMERA, *camera_id));
       } else {

@@ -24,38 +24,19 @@ FeatureExtractionTypeOptions::FeatureExtractionTypeOptions()
       loma(std::make_shared<LomaExtractionOptions>()) {}
 
 FeatureExtractionTypeOptions::FeatureExtractionTypeOptions(
-    const FeatureExtractionTypeOptions& other) {
-  if (other.sift) {
-    sift = std::make_shared<SiftExtractionOptions>(*other.sift);
-  }
-  if (other.aliked) {
-    aliked = std::make_shared<AlikedExtractionOptions>(*other.aliked);
-  }
-  if (other.loma) {
-    loma = std::make_shared<LomaExtractionOptions>(*other.loma);
-  }
-}
+    const FeatureExtractionTypeOptions& other)
+    : sift(CloneSharedPtr(other.sift)),
+      aliked(CloneSharedPtr(other.aliked)),
+      loma(CloneSharedPtr(other.loma)) {}
 
 FeatureExtractionTypeOptions& FeatureExtractionTypeOptions::operator=(
     const FeatureExtractionTypeOptions& other) {
   if (this == &other) {
     return *this;
   }
-  if (other.sift) {
-    sift = std::make_shared<SiftExtractionOptions>(*other.sift);
-  } else {
-    sift.reset();
-  }
-  if (other.aliked) {
-    aliked = std::make_shared<AlikedExtractionOptions>(*other.aliked);
-  } else {
-    aliked.reset();
-  }
-  if (other.loma) {
-    loma = std::make_shared<LomaExtractionOptions>(*other.loma);
-  } else {
-    loma.reset();
-  }
+  sift = CloneSharedPtr(other.sift);
+  aliked = CloneSharedPtr(other.aliked);
+  loma = CloneSharedPtr(other.loma);
   return *this;
 }
 
@@ -85,7 +66,7 @@ bool FeatureExtractionOptions::RequiresOpenGL() const {
           sift->force_covariant_extractor) {
         return false;
       }
-#ifdef COLMAP_CUDA_ENABLED
+#if defined(COLMAP_CUDA_ENABLED) || defined(COLMAP_HIP_ENABLED)
       return false;
 #else
       return use_gpu;
@@ -125,9 +106,9 @@ bool FeatureExtractionOptions::Check() const {
   CHECK_OPTION_GT(EffMaxImageSize(), 0);
   if (use_gpu) {
     CHECK_OPTION_GT(CSVToVector<int>(gpu_index).size(), 0);
-#if !defined(COLMAP_GPU_ENABLED) && !defined(COLMAP_CUDA_ENABLED)
-    LOG(ERROR) << "Cannot use GPU feature extraction without CUDA or OpenGL "
-                  "support. Consider setting use_gpu to false.";
+#if !defined(COLMAP_GPU_ENABLED)
+    LOG(ERROR) << "Cannot use GPU feature extraction without CUDA, HIP or "
+                  "OpenGL support. Consider setting use_gpu to false.";
     return false;
 #endif
   }
