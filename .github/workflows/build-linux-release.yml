@@ -1,4 +1,4 @@
-name: Linux CUDA release archives
+name: Linux release archives
 
 on:
   workflow_dispatch:
@@ -22,9 +22,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - cuda: '12.9'
+          - variant: cpu
+            image: ubuntu:24.04
+          - variant: cuda12.9
             image: nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04@sha256:1cb02388491c05441f8963d42bc38b6ec5462fba95a8e3bb2cb8e6091f0738c8
-          - cuda: '13.0'
+          - variant: cuda13.0
             image: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04@sha256:ae7f650405a3964972dacfa889273bf8e3fbe9709899afd187da01c4cdff3105
     steps:
       - uses: actions/checkout@v7
@@ -44,12 +46,12 @@ jobs:
             --volume "${GITHUB_WORKSPACE}:/work" \
             --workdir /work \
             --env COLMAP_CONTAINER_BUILD=1 \
-            --env CUDA_RELEASE='${{ matrix.cuda }}' \
+            --env BUILD_VARIANT='${{ matrix.variant }}' \
             '${{ matrix.image }}' \
             bash scripts/release/build-linux-container.sh
       - uses: actions/upload-artifact@v7
         with:
-          name: colmap-linux-cuda${{ matrix.cuda }}
-          path: dist/colmap-linux-x86_64-cuda${{ matrix.cuda }}-*.tar.gz*
+          name: colmap-linux-${{ matrix.variant }}
+          path: dist/colmap-linux-x86_64-${{ matrix.variant }}-*.tar.gz*
           if-no-files-found: error
           compression-level: 0

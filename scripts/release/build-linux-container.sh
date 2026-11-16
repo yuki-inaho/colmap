@@ -2,10 +2,16 @@
 set -euo pipefail
 
 if [[ "${COLMAP_CONTAINER_BUILD:-}" != 1 || $EUID != 0 ]]; then
-    echo "Run only inside the disposable CUDA build container as root" >&2
+    echo "Run only inside the disposable build container as root" >&2
     exit 2
 fi
-: "${CUDA_RELEASE:?CUDA release label is required}"
+: "${BUILD_VARIANT:?build variant is required}"
+case "$BUILD_VARIANT" in
+    cpu) cuda_options=(-DCUDA_ENABLED=OFF) ;;
+    cuda12.9|cuda13.0)
+        cuda_options=(-DCUDA_ENABLED=ON '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;100;103;120') ;;
+    *) echo "Unsupported build variant: $BUILD_VARIANT" >&2; exit 2 ;;
+esac
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
@@ -21,8 +27,7 @@ git config --global --add safe.directory /work
 cmake -S /work -B /work/build-release-ci -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/work/install-release-ci \
     -DCMAKE_INSTALL_LIBDIR=lib \
-    '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;100;103;120' \
-    -DCUDA_ENABLED=ON -DONNX_ENABLED=ON -DFETCH_ONNX=ON \
+    "${cuda_options[@]}" -DONNX_ENABLED=ON -DFETCH_ONNX=ON \
     -DGUI_ENABLED=ON -DCGAL_ENABLED=OFF -DCASPAR_ENABLED=OFF -DTESTS_ENABLED=OFF
 cmake --build /work/build-release-ci --parallel 2
 cmake --install /work/build-release-ci
@@ -37,8 +42,10 @@ printf '%s  %s\n' \
 chmod +x "${tools_dir}"/*.AppImage
 export PATH="${tools_dir}:${PATH}"
 export LINUXDEPLOY="${tools_dir}/linuxdeploy-x86_64.AppImage"
-export CUDNN_LIBRARY_DIR=/usr/lib/x86_64-linux-gnu
-archive="/work/dist/colmap-linux-x86_64-cuda${CUDA_RELEASE}-$(git -C /work rev-parse --short=8 HEAD).tar.gz"
+if [[ "$BUILD_VARIANT" != cpu ]]; then
+    export CUDNN_LIBRARY_DIR=/usr/lib/x86_64-linux-gnu
+fi
+archive="/work/dist/colmap-linux-x86_64-${BUILD_VARIANT}-$(git -C /work rev-parse --short=8 HEAD).tar.gz"
 bash /work/scripts/release/package-linux.sh /work/install-release-ci "$archive"
 
 # Exercise the unpacked distribution without the build environment's libraries.
