@@ -163,6 +163,16 @@ jobs:
             BUILD_CUDA_ENABLED=${{ matrix.config.cudaEnabled }}
             PYCOLMAP_TEST_ONNX=1
 
+      - name: Test CPU wheel and model downloads on Debian
+        if: runner.os == 'Linux' && !matrix.config.cudaEnabled
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}/wheelhouse:/wheels:ro" \
+            -v "${GITHUB_WORKSPACE}/python/tests/onnx_features_test.py:/test_onnx.py:ro" \
+            -e PYCOLMAP_TEST_ONNX=1 -e PYCOLMAP_TEST_DEVICE=cpu \
+            python:3.10-slim sh -c \
+            'pip install numpy pillow pytest /wheels/*cp310*.whl && python -m pytest -q -s /test_onnx.py'
+
       - name: Show compiler cache stats (Linux)
         if: always()
         shell: bash

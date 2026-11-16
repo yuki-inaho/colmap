@@ -363,7 +363,23 @@ std::optional<std::string> DownloadFile(const std::string& url) {
       data_stream.clear();
     }
 
-    const CURLcode code = curl_easy_perform(handle.ptr);
+    CURLcode code = curl_easy_perform(handle.ptr);
+#ifdef __linux__
+    // A manylinux-built libcurl may reference a CA bundle that does not exist
+    // on Debian-derived systems. Preserve any explicitly configured trust
+    // store, and retry only when libcurl could not read its default bundle.
+    constexpr const char* kDebianCaBundle =
+        "/etc/ssl/certs/ca-certificates.crt";
+    if (code == CURLE_SSL_CACERT_BADFILE &&
+        (!ssl_cert_file.has_value() || ssl_cert_file->empty()) &&
+        (!ssl_cert_dir.has_value() || ssl_cert_dir->empty()) &&
+        std::filesystem::exists(kDebianCaBundle)) {
+      curl_easy_setopt(handle.ptr, CURLOPT_CAINFO, kDebianCaBundle);
+      data_stream.str("");
+      data_stream.clear();
+      code = curl_easy_perform(handle.ptr);
+    }
+#endif
     if (code != CURLE_OK) {
       if (code == CURLE_SSL_CACERT_BADFILE || code == CURLE_SSL_CACERT) {
         LOG(ERROR) << "Curl SSL certificate error (code " << code
