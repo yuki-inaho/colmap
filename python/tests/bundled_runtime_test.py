@@ -17,7 +17,7 @@ def test_prepare_runtime_preloads_bundled_libraries(
     package.__path__ = [str(tmp_path)]
     monkeypatch.setitem(sys.modules, package_name, package)
     config = types.ModuleType(f"{package_name}._build_config")
-    setattr(config, "CUDA_MAJOR", cuda_major)
+    config.CUDA_MAJOR = cuda_major  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, config.__name__, config)
     spec = importlib.util.spec_from_file_location(
         f"{package_name}._runtime",

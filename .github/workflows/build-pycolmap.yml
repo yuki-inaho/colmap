@@ -133,7 +133,7 @@ jobs:
             # Keep CUDA major versions in separate distributions.
             pip install tomlkit
             python python/ci/update_pyproject_toml.py --name "pycolmap-cuda${CUDA_MAJOR}" --add-deps \
-              "cuda-toolkit[cublas,cudart,curand,cufft,nvjitlink,nvrtc]>=${CUDA_VERSION},<$((CUDA_MAJOR + 1))" \
+              "cuda-toolkit[cublas,cudart,curand,cufft,nvjitlink,nvrtc]~=${CUDA_VERSION}.0" \
               "nvidia-cudnn-cu${CUDA_MAJOR}>=9,<10"
           else
             CIBW_MANYLINUX_X86_64_IMAGE="quay.io/pypa/manylinux_2_28_x86_64"
@@ -151,6 +151,7 @@ jobs:
         env:
           CIBW_ENVIRONMENT:  >
             BUILD_CUDA_ENABLED=${{ matrix.config.cudaEnabled }}
+            PYCOLMAP_TEST_ONNX=1
 
       - name: Show compiler cache stats (Linux)
         if: always()
