@@ -44,6 +44,22 @@ fi
     --executable "${prefix}/bin/colmap" \
     "${libraries[@]}" --exclude-library 'libcuda.so*' --plugin qt
 
+# linuxdeploy dereferences NVRTC's versioned symlinks when explicitly adding
+# dynamically loaded libraries. Restore identical copies as relative symlinks
+# so the archive can fit within GitHub's per-asset size limit.
+declare -A nvrtc_by_hash=()
+shopt -s nullglob
+for library in "${appdir}"/usr/lib/libnvrtc*.so.*; do
+    [[ -f "$library" && ! -L "$library" ]] || continue
+    digest="$(sha256sum "$library")"
+    digest="${digest%% *}"
+    if [[ -n "${nvrtc_by_hash[$digest]:-}" ]]; then
+        ln -sfn -- "${nvrtc_by_hash[$digest]##*/}" "$library"
+    else
+        nvrtc_by_hash[$digest]="$library"
+    fi
+done
+
 install -m 755 "${repo_root}/scripts/release/colmap-launcher.sh" "${appdir}/colmap"
 mkdir -p "${appdir}/licenses/onnxruntime"
 cp "${repo_root}/LICENSE" "${appdir}/licenses/COLMAP.txt"
@@ -75,4 +91,8 @@ fi
 readelf --version-info "${appdir}/usr/lib/libonnxruntime.so.1" | grep -F 'VERS_1.30.0' > /dev/null
 env -u LD_LIBRARY_PATH "${appdir}/colmap" version
 tar -C "$tmp" -czf "$archive" colmap
+if (( $(stat -c %s "$archive") >= 2147483648 )); then
+    echo "Archive exceeds GitHub's 2 GiB release asset limit: $archive" >&2
+    exit 1
+fi
 (cd "$(dirname "$archive")" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
