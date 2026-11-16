@@ -137,9 +137,14 @@ jobs:
               # Newer cuDNN releases can require drivers newer than R580.
               CUDNN_REQUIREMENT="nvidia-cudnn-cu13>=9.19.1,<9.20"
             fi
-            python python/ci/update_pyproject_toml.py --name "pycolmap-cuda${CUDA_MAJOR}" --add-deps \
-              "cuda-toolkit[cublas,cudart,curand,cufft,nvjitlink,nvrtc]~=${CUDA_VERSION}.0" \
+            CUDA_DEPENDENCIES=(
+              "cuda-toolkit[cublas,cudart,curand,cufft,nvjitlink,nvrtc]~=${CUDA_VERSION}.0"
               "${CUDNN_REQUIREMENT}"
+            )
+            if [ "${CUDA_MAJOR}" = "13" ]; then
+              CUDA_DEPENDENCIES+=("nvidia-nvjitlink>=13.0.88,<13.1")
+            fi
+            python python/ci/update_pyproject_toml.py --name "pycolmap-cuda${CUDA_MAJOR}" --add-deps "${CUDA_DEPENDENCIES[@]}"
           else
             CIBW_MANYLINUX_X86_64_IMAGE="quay.io/pypa/manylinux_2_28_x86_64"
           fi
