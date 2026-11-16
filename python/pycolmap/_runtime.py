@@ -52,6 +52,21 @@ def prepare_runtime() -> None:
         ]
         for package, filename in libraries:
             _load_package_library(prefix or f"nvidia.{package}", filename)
+        # cuDNN loads its component libraries by SONAME at inference time.
+        # Preload their dependencies first because pip's lib directory is not
+        # necessarily on the dynamic linker's search path.
+        for component in (
+            "graph",
+            "ops",
+            "adv",
+            "cnn",
+            "engines_precompiled",
+            "engines_runtime_compiled",
+            "engines_tensor_ir",
+            "heuristic",
+            "ext",
+        ):
+            _load_package_library("nvidia.cudnn", f"libcudnn_{component}.so.9")
         _load_package_library("nvidia.cudnn", "libcudnn.so.9")
 
     ort_library = Path(__file__).parent / "_ort" / "libonnxruntime.so.1"

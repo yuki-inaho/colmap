@@ -31,7 +31,14 @@ def test_prepare_runtime_preloads_bundled_libraries(
 
     library_root = tmp_path / "cuda"
     (library_root / "lib").mkdir(parents=True)
-    for name in ("libcudart.so.12", "libcudart.so.13"):
+    for name in (
+        "libcudart.so.12",
+        "libcudart.so.13",
+        "libcudnn_graph.so.9",
+        "libcudnn_ops.so.9",
+        "libcudnn_engines_runtime_compiled.so.9",
+        "libcudnn.so.9",
+    ):
         (library_root / "lib" / name).touch()
     ort_dir = tmp_path / "_ort"
     ort_dir.mkdir()
@@ -56,4 +63,17 @@ def test_prepare_runtime_preloads_bundled_libraries(
     ]
     assert cuda_libraries == (
         [f"libcudart.so.{cuda_major}"] if cuda_major else []
+    )
+    cudnn_libraries = [
+        name for name, _ in loaded if name.startswith("libcudnn")
+    ]
+    assert cudnn_libraries == (
+        [
+            "libcudnn_graph.so.9",
+            "libcudnn_ops.so.9",
+            "libcudnn_engines_runtime_compiled.so.9",
+            "libcudnn.so.9",
+        ]
+        if cuda_major
+        else []
     )
