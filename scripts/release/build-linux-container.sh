@@ -13,9 +13,9 @@ apt-get install -y --no-install-recommends \
     libboost-program-options-dev libboost-graph-dev libboost-system-dev \
     libeigen3-dev libopenimageio-dev openimageio-tools libopencv-core-dev \
     libmetis-dev libgoogle-glog-dev libxkbcommon-dev \
-    libsqlite3-dev libglew-dev qt6-base-dev qt6-svg-dev libceres-dev \
+    libsqlite3-dev libglew-dev qt6-base-dev qt6-svg-dev qt6-qpa-plugins libceres-dev \
     libsuitesparse-dev libcurl4-openssl-dev libssl-dev libgl1-mesa-dev \
-    python3 python3-numpy python3-pil sqlite3
+    python3 python3-numpy python3-pil sqlite3 xvfb xauth xdotool libgl1-mesa-dri
 git config --global --add safe.directory /work
 
 cmake -S /work -B /work/build-release-ci -G Ninja \
@@ -46,6 +46,8 @@ tar -xzf "$archive" -C "$tools_dir"
 mkdir "${tools_dir}/images"
 python3 -c 'import numpy as np; from PIL import Image,ImageFilter; import sys; a=np.random.default_rng(42).integers(0,256,(256,256,3),dtype=np.uint8); im=Image.fromarray(a).filter(ImageFilter.GaussianBlur(2)); [im.save(f"{sys.argv[1]}/{i}.png") for i in (1,2)]' "${tools_dir}/images"
 binary="${tools_dir}/colmap/colmap"
+env -u LD_LIBRARY_PATH LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=xcb \
+    xvfb-run -a bash /work/scripts/release/smoke-gui.sh "$binary"
 env -u LD_LIBRARY_PATH "$binary" feature_extractor --database_path "${tools_dir}/test.db" \
     --image_path "${tools_dir}/images" --FeatureExtraction.type ALIKED_N16ROT \
     --FeatureExtraction.use_gpu 0 --FeatureExtraction.num_threads 1 \

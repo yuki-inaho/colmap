@@ -12,10 +12,11 @@ and system graphics libraries are required. CUDA 13 requires an R580 or later
 driver; PTX JIT or newer toolkit features may require a newer driver. See the
 [NVIDIA compatibility documentation](https://docs.nvidia.com/deploy/cuda-compatibility/).
 
-The workflow checks the archive with CPU ALIKED and LightGlue inference. GitHub's
-standard hosted runners do not have a GPU: a successful workflow does not prove
-GPU inference or MVS execution. Record separate hardware test results in the
-release notes. ONNX models are downloaded on first use.
+The workflow checks the archive with an X11 GUI launch on Xvfb, and with CPU
+ALIKED and LightGlue inference. GitHub's standard hosted runners do not have a
+GPU: a successful workflow does not prove GPU inference or MVS execution.
+Record separate hardware test results in the release notes. ONNX models are
+downloaded on first use.
 
 The build container must be disposable; `build-linux-container.sh` installs
 system packages. `package-linux.sh` requires the installed COLMAP prefix,
